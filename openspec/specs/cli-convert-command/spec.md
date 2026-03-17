@@ -88,3 +88,70 @@ On success, `pixdom convert` SHALL print the resolved absolute output path to st
 #### Scenario: --help exits with code 0
 - **WHEN** `pixdom --help` or `pixdom convert --help` is run
 - **THEN** usage is printed and the process exits with code 0
+
+### Requirement: --fps flag
+The `convert` subcommand SHALL accept `--fps <n>` where `n` is a positive integer specifying the frame rate for animated output formats (GIF, MP4, WebM). When omitted, the animated renderer's built-in default of 30fps applies. The flag SHALL be passed as `fps` in `RenderOptions`.
+
+#### Scenario: --fps sets frame rate
+- **WHEN** `pixdom convert --html "<div>" --format gif --fps 24` is run
+- **THEN** `RenderOptions.fps` is set to `24` and the output GIF is encoded at 24fps
+
+#### Scenario: --fps omitted uses renderer default
+- **WHEN** `pixdom convert --html "<div>" --format mp4` is run without `--fps`
+- **THEN** `RenderOptions.fps` is `undefined` and the animated renderer defaults to 30fps
+
+### Requirement: --duration flag
+The `convert` subcommand SHALL accept `--duration <ms>` where `ms` is a positive integer specifying the animation cycle length in milliseconds. When provided, `render()` SHALL use this value as the cycle duration instead of calling `detectAnimationCycle()`. The flag SHALL be validated: a value of 0 or less SHALL cause the CLI to print an error to stderr and exit with code 1.
+
+#### Scenario: --duration overrides detection
+- **WHEN** `pixdom convert --html "<div>" --format gif --duration 2000` is run
+- **THEN** `RenderOptions.duration` is set to `2000` and the GIF captures a 2000ms animation cycle
+
+#### Scenario: --duration omitted uses auto-detection
+- **WHEN** `pixdom convert --html "<div>" --format gif` is run without `--duration`
+- **THEN** `RenderOptions.duration` is `undefined` and `render()` calls `detectAnimationCycle()`
+
+#### Scenario: --duration zero or negative exits with error
+- **WHEN** `pixdom convert --html "<div>" --format gif --duration 0` is run
+- **THEN** stderr contains a validation error and the process exits with code 1
+
+### Requirement: --auto-size flag
+The `convert` subcommand SHALL accept `--auto-size` as a boolean flag (no value). When present, `RenderOptions.autoSize` SHALL be set to `true` and the rendered output dimensions SHALL reflect the page's natural content size.
+
+#### Scenario: --auto-size passes autoSize to render
+- **WHEN** `pixdom convert --html "<div style='height:2000px'>" --auto-size` is run
+- **THEN** `RenderOptions.autoSize` is `true` and the output image height is approximately 2000px
+
+#### Scenario: --auto-size omitted uses fixed viewport
+- **WHEN** `pixdom convert --html "<div style='height:2000px'>"` is run without `--auto-size`
+- **THEN** the output image height is the default 720px (or the `--height` value)
+
+#### Scenario: --auto-size combined with --width
+- **WHEN** `pixdom convert --html "..." --auto-size --width 600` is run
+- **THEN** the output width is 600px and the height is auto-detected from content
+
+### Requirement: Chromium browser auto-installed on package install
+`apps/cli/package.json` SHALL include a `postinstall` script that runs `playwright install chromium`. This script SHALL execute automatically after any `npm install`, `pnpm install`, or `yarn` invocation on the `apps/cli` package, ensuring the Chromium binary is available without manual intervention.
+
+#### Scenario: Fresh install includes browser binary
+- **WHEN** `npm install` (or `pnpm install`) is run in `apps/cli` on a machine with no prior Playwright binaries
+- **THEN** the `postinstall` script downloads the Chromium binary and `pixdom convert` succeeds without a browser launch error
+
+#### Scenario: Re-install is idempotent
+- **WHEN** `npm install` is run again on a machine that already has the Chromium binary installed
+- **THEN** `playwright install chromium` exits quickly without re-downloading and the existing binary remains intact
+
+### Requirement: --image flag
+The `convert` subcommand SHALL accept `--image <path>` as a fourth mutually-exclusive input flag alongside `--html`, `--file`, and `--url`. When provided, `RenderInput` SHALL be set to `{ type: 'image', path: path.resolve(opts.image) }`. The path SHALL be resolved to an absolute path before passing to `render()`.
+
+#### Scenario: --image produces output file
+- **WHEN** `pixdom convert --image /path/to/photo.jpg --format png` is run
+- **THEN** a PNG file is written to the output path and its absolute path is printed to stdout
+
+#### Scenario: --image with --html exits with error
+- **WHEN** `pixdom convert --image photo.jpg --html "<h1>Hi</h1>"` is run
+- **THEN** stderr contains a mutual-exclusion error and the process exits with code 1
+
+#### Scenario: --image with animated format exits with error
+- **WHEN** `pixdom convert --image photo.jpg --format gif` is run
+- **THEN** the process exits with code 1 (CAPTURE_FAILED propagated from render)

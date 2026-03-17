@@ -6,6 +6,7 @@ import { makeError, type RenderError, type RenderErrorCode } from './errors.js';
 import { loadPage } from './load-page.js';
 import { renderStatic } from './static-renderer.js';
 import { renderAnimated } from './animated-renderer.js';
+import { renderImage } from './image-renderer.js';
 
 export type { RenderError, RenderErrorCode };
 
@@ -15,6 +16,17 @@ const STATIC_FORMATS = new Set(['png', 'jpeg', 'webp']);
 export async function render(
   options: RenderOptions,
 ): Promise<Result<Buffer, RenderError>> {
+  // Image inputs bypass Playwright entirely — route directly to Sharp
+  if (options.input.type === 'image') {
+    try {
+      const buffer = await renderImage(options);
+      return ok(buffer);
+    } catch (cause) {
+      const msg = cause instanceof Error ? cause.message : String(cause);
+      return err(makeError('CAPTURE_FAILED', `Image render failed: ${msg}`, cause));
+    }
+  }
+
   let browser;
 
   try {
@@ -48,6 +60,16 @@ export async function render(
       return err(makeError('PAGE_LOAD_FAILED', 'Failed to load page', cause));
     }
 
+    // Auto-size: resize viewport to match content dimensions after page load
+    if (options.autoSize) {
+      const { scrollWidth, scrollHeight } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        scrollHeight: document.documentElement.scrollHeight,
+      }));
+      const autoWidth = options.viewport.width === 1280 ? scrollWidth : options.viewport.width;
+      await page.setViewportSize({ width: autoWidth, height: scrollHeight });
+    }
+
     // Apply timeout if specified
     if (options.timeout) {
       page.setDefaultTimeout(options.timeout);
@@ -57,7 +79,7 @@ export async function render(
     const isStaticFormat = STATIC_FORMATS.has(options.format);
 
     if (isAnimatedFormat) {
-      const cycleMs = await detectAnimationCycle(page);
+      const cycleMs = options.duration ?? await detectAnimationCycle(page);
       if (cycleMs === null) {
         return err(
           makeError(

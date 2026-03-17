@@ -5,6 +5,7 @@ export const RenderInputSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('html'), html: z.string() }),
   z.object({ type: z.literal('file'), path: z.string() }),
   z.object({ type: z.literal('url'), url: z.string() }),
+  z.object({ type: z.literal('image'), path: z.string() }),
 ]);
 export type RenderInput = z.infer<typeof RenderInputSchema>;
 
@@ -14,8 +15,8 @@ export type OutputFormat = z.infer<typeof OutputFormatSchema>;
 
 // ViewportOptions
 export const ViewportOptionsSchema = z.object({
-  width: z.number(),
-  height: z.number(),
+  width: z.number().default(1280),
+  height: z.number().default(720),
   deviceScaleFactor: z.number().default(1),
 });
 export type ViewportOptions = z.infer<typeof ViewportOptionsSchema>;
@@ -28,6 +29,8 @@ export const RenderOptionsSchema = z.object({
   quality: z.number().int().min(0).max(100).optional(),
   timeout: z.number().optional(),
   fps: z.number().optional(),
+  duration: z.number().optional(),
+  autoSize: z.boolean().optional(),
 });
 export type RenderOptions = z.infer<typeof RenderOptionsSchema>;
 

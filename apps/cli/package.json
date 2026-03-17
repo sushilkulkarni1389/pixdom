@@ -6,7 +6,9 @@
     "pixdom": "./bin/pixdom.js"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "postinstall": "node ../../node_modules/playwright/cli.js install chromium",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --project tsconfig.json"
   },
   "dependencies": {
     "@pixdom/core": "workspace:*",

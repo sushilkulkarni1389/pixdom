@@ -24,6 +24,10 @@ program
   .option('--width <n>', 'Viewport width in pixels', '1280')
   .option('--height <n>', 'Viewport height in pixels', '720')
   .option('--quality <n>', 'Compression quality 0–100', '90')
+  .option('--image <path>', 'Local image file to convert (bypasses browser)')
+  .option('--fps <n>', 'Frame rate for animated output (gif/mp4/webm)')
+  .option('--duration <ms>', 'Animation cycle length in ms (overrides auto-detection)')
+  .option('--auto-size', 'Auto-detect output dimensions from page content')
   .action(async (opts) => {
     try {
       await convertAction(opts);
@@ -42,23 +46,27 @@ interface ConvertOpts {
   html?: string;
   file?: string;
   url?: string;
+  image?: string;
   profile?: string;
   output?: string;
   format: string;
   width: string;
   height: string;
   quality: string;
+  fps?: string;
+  duration?: string;
+  autoSize?: boolean;
 }
 
 async function convertAction(opts: ConvertOpts): Promise<void> {
   // 2.2 Input mutex validation
-  const inputFlags = [opts.html, opts.file, opts.url].filter((v) => v !== undefined);
+  const inputFlags = [opts.html, opts.file, opts.url, opts.image].filter((v) => v !== undefined);
   if (inputFlags.length === 0) {
-    process.stderr.write('Error: Provide exactly one of --html, --file, or --url\n');
+    process.stderr.write('Error: Provide exactly one of --html, --file, --url, or --image\n');
     process.exit(1);
   }
   if (inputFlags.length > 1) {
-    process.stderr.write('Error: Provide exactly one of --html, --file, or --url (got multiple)\n');
+    process.stderr.write('Error: Provide exactly one of --html, --file, --url, or --image (got multiple)\n');
     process.exit(1);
   }
 
@@ -68,6 +76,8 @@ async function convertAction(opts: ConvertOpts): Promise<void> {
     input = { type: 'html', html: opts.html };
   } else if (opts.file !== undefined) {
     input = { type: 'file', path: path.resolve(opts.file) };
+  } else if (opts.image !== undefined) {
+    input = { type: 'image', path: path.resolve(opts.image) };
   } else {
     input = { type: 'url', url: opts.url! };
   }
@@ -94,6 +104,19 @@ async function convertAction(opts: ConvertOpts): Promise<void> {
     quality = opts.quality !== '90' ? parseInt(opts.quality, 10) : profile.quality;
   }
 
+  // --duration validation
+  let duration: number | undefined;
+  if (opts.duration !== undefined) {
+    duration = parseInt(opts.duration, 10);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      process.stderr.write('Error: --duration must be a positive integer (milliseconds)\n');
+      process.exit(1);
+    }
+  }
+
+  // --fps parsing
+  const fps = opts.fps !== undefined ? parseInt(opts.fps, 10) : undefined;
+
   // 2.4 Default output path
   const outputPath = opts.output
     ? path.resolve(opts.output)
@@ -105,6 +128,9 @@ async function convertAction(opts: ConvertOpts): Promise<void> {
     format,
     viewport: { width, height, deviceScaleFactor: 1 },
     quality,
+    fps,
+    duration,
+    autoSize: opts.autoSize ?? false,
   });
 
   // 3.3 Error handling

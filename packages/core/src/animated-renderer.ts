@@ -5,6 +5,17 @@ import { randomUUID } from 'node:crypto';
 import type { Page } from 'playwright';
 import type { RenderOptions } from '@pixdom/types';
 import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
+
+if (ffmpegPath) {
+  ffmpeg.setFfmpegPath(ffmpegPath);
+}
+
+function assertFfmpegAvailable(): void {
+  if (!ffmpegPath) {
+    throw new Error('FFmpeg binary not available on this platform (ffmpeg-static returned null)');
+  }
+}
 
 /**
  * Drives a rAF loop via page.evaluate for `cycleMs` duration, taking a
@@ -17,21 +28,16 @@ export async function captureFrames(
   outDir: string,
 ): Promise<string[]> {
   const frameCount = Math.max(1, Math.round((cycleMs / 1000) * fps));
-  const frameInterval = cycleMs / frameCount; // ms between frames
+  const frameIntervalMs = cycleMs / frameCount;
 
-  // Advance the page animation clock one frame at a time and screenshot
+  await page.clock.install({ time: 0 });
+
   const paths: string[] = [];
   for (let i = 0; i < frameCount; i++) {
+    await page.clock.runFor(frameIntervalMs);
     const framePath = path.join(outDir, `frame-${String(i).padStart(6, '0')}.png`);
     await page.screenshot({ type: 'png', fullPage: false, path: framePath });
     paths.push(framePath);
-    // Advance time by injecting a small delay so CSS/rAF animations progress
-    if (i < frameCount - 1) {
-      await page.evaluate(
-        (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-        frameInterval,
-      );
-    }
   }
   return paths;
 }
@@ -58,15 +64,33 @@ export async function encodeGif(
   fps: number,
   _cycleMs: number,
 ): Promise<Buffer> {
-  const outPath = frames[0]!.replace(/frame-\d+\.png$/, 'out.gif');
+  assertFfmpegAvailable();
   const pattern = frames[0]!.replace(/frame-\d+\.png$/, 'frame-%06d.png');
-  await ffmpegEncode(pattern, fps, outPath, ['-loop', '0', '-vf', 'split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse']);
+  const palettePath = frames[0]!.replace(/frame-\d+\.png$/, 'palette.png');
+  const outPath = frames[0]!.replace(/frame-\d+\.png$/, 'out.gif');
+
+  // Pass 1: generate a globally-optimal palette from all frames
+  await ffmpegEncode(pattern, fps, palettePath, ['-vf', 'palettegen']);
+
+  // Pass 2: encode GIF using the palette derived from the full sequence
+  await new Promise<void>((resolve, reject) => {
+    ffmpeg()
+      .input(pattern)
+      .inputOptions([`-framerate ${fps}`])
+      .input(palettePath)
+      .outputOptions(['-loop', '0', '-filter_complex', '[0:v][1:v]paletteuse'])
+      .on('error', reject)
+      .on('end', () => resolve())
+      .save(outPath);
+  });
+
   const buf = await fs.readFile(outPath);
   await fs.unlink(outPath);
   return buf;
 }
 
 export async function encodeMp4(frames: string[], fps: number): Promise<Buffer> {
+  assertFfmpegAvailable();
   const outPath = frames[0]!.replace(/frame-\d+\.png$/, 'out.mp4');
   const pattern = frames[0]!.replace(/frame-\d+\.png$/, 'frame-%06d.png');
   await ffmpegEncode(pattern, fps, outPath, ['-pix_fmt', 'yuv420p', '-movflags', '+faststart']);
@@ -76,6 +100,7 @@ export async function encodeMp4(frames: string[], fps: number): Promise<Buffer> 
 }
 
 export async function encodeWebm(frames: string[], fps: number): Promise<Buffer> {
+  assertFfmpegAvailable();
   const outPath = frames[0]!.replace(/frame-\d+\.png$/, 'out.webm');
   const pattern = frames[0]!.replace(/frame-\d+\.png$/, 'frame-%06d.png');
   await ffmpegEncode(pattern, fps, outPath, ['-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '33']);
