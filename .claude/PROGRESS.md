@@ -15,12 +15,12 @@ At each session start, initialise Claude Code's built-in task system:
 
 | Field | Value |
 |---|---|
-| ACTIVE LAYER | Layer 1 — Monorepo Setup |
-| ACTIVE TASK | Not started |
-| STATUS | ⏳ Not Started |
-| BLOCKED BY | — |
-| LAST SESSION | — |
-| LAST COMMIT | — |
+| ACTIVE LAYER | Layer 2 — Shared Types |
+| ACTIVE TASK | scaffold-shared-types (OpenSpec change) |
+| STATUS | 🔄 Planning Complete — Implementation Not Started |
+| BLOCKED BY | Layer 1 tasks (monorepo scaffold) not yet done |
+| LAST SESSION | 2026-03-17 — proposed scaffold-shared-types, all 4 artifacts created |
+| LAST COMMIT | 1c84dec — chore: initial pixdom project setup |
 
 ---
 
@@ -29,7 +29,7 @@ At each session start, initialise Claude Code's built-in task system:
 | # | Layer Name | Status | Git Tag | Context File |
 |---|---|---|---|---|
 | 1 | Monorepo Setup | ⏳ Not Started | — | `.claude/context/monorepo-setup.md` |
-| 2 | Shared Types | ⏳ Not Started | — | `.claude/context/shared-types.md` |
+| 2 | Shared Types | 🔄 Planning Done | — | `.claude/context/shared-types.md` |
 | 3 | Platform Profiles | ⏳ Not Started | — | `.claude/context/platform-profiles.md` |
 | 4 | Animation Detector | ⏳ Not Started | — | `.claude/context/animation-detector.md` |
 | 5 | Core Rendering Engine | ⏳ Not Started | — | `.claude/context/core-rendering.md` |
@@ -300,7 +300,11 @@ At each session start, initialise Claude Code's built-in task system:
 
 | Decision | Rationale |
 |---|---|
-| | |
+| `packages/types` uses Zod as sole runtime dep; all TS types derived via `z.infer` | Eliminates manual type/schema duplication; provides free runtime validation at boundaries |
+| `RenderInput` is a discriminated union on `type` field | Enables exhaustive routing in `core` without optional-field checks |
+| `ProfileId` is a `z.enum` string union, not a TypeScript enum | JSON-serialisable, tree-shakeable, avoids TS enum runtime object |
+| `Result<T,E>` requires `code: string` on error payload | Enables programmatic error matching without string-parsing messages |
+| `packages/types/src/index.ts` has named exports only — no default export | Consistent tree-shaking and avoids import aliasing across the monorepo |
 
 ## Technical Debt Log
 
