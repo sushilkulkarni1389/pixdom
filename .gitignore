@@ -1,0 +1,4 @@
+# OpenSpec session diffs (optional — commit if you want an audit trail)
+.claude/SESSION-DIFF-*.md
+
+node_modules/

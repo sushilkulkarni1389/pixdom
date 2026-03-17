@@ -1,0 +1,15 @@
+# Archived proposals — do not lint history
+openspec/changes/archive/**
+
+# Session diff reports (these are informal notes)
+.claude/SESSION-DIFF-*.md
+
+# v2 scope — not built yet
+apps/web/**
+
+# Build artifacts
+node_modules/**
+dist/**
+**/dist/**
+output/**
+

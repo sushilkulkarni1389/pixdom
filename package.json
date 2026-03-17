@@ -1,0 +1,15 @@
+{
+  "name": "pixdom",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Convert HTML to platform-ready images and animated assets",
+  "scripts": {
+    "lint:md": "markdownlint-cli2 'openspec/**/*.md' '.claude/**/*.md'",
+    "lint:md:fix": "markdownlint-cli2 --fix 'openspec/**/*.md' '.claude/**/*.md'",
+    "lint:md:specs": "markdownlint-cli2 'openspec/specs/**/*.md'",
+    "lint:md:changes": "markdownlint-cli2 'openspec/changes/**/*.md' '!openspec/changes/archive/**'"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.21.0"
+  }
+}
