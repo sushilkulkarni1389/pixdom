@@ -10,6 +10,7 @@
     "lint:md:changes": "markdownlint-cli2 'openspec/changes/**/*.md' '!openspec/changes/archive/**'"
   },
   "devDependencies": {
+    "@types/node": "^25.5.0",
     "markdownlint-cli2": "^0.21.0"
   }
 }

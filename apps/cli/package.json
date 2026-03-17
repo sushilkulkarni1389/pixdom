@@ -1,0 +1,22 @@
+{
+  "name": "pixdom",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "pixdom": "./bin/pixdom.js"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pixdom/core": "workspace:*",
+    "@pixdom/profiles": "workspace:*",
+    "@pixdom/types": "workspace:*",
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.0"
+  }
+}
