@@ -24,16 +24,23 @@ export async function renderImage(options, onProgress) {
         image = image.resize(width, height, { fit: 'inside' });
         emit({ type: 'step-done', step: 'resize' });
     }
+    emit({ type: 'step-start', step: 'write-output' });
+    let buf;
     switch (options.format) {
         case 'png':
-            return image
+            buf = await image
                 .png({ compressionLevel: Math.round(((100 - (options.quality ?? 100)) / 100) * 9) })
                 .toBuffer();
+            break;
         case 'jpeg':
-            return image.jpeg({ quality: options.quality ?? 90 }).toBuffer();
+            buf = await image.jpeg({ quality: options.quality ?? 90 }).toBuffer();
+            break;
         case 'webp':
-            return image.webp({ quality: options.quality ?? 90 }).toBuffer();
+            buf = await image.webp({ quality: options.quality ?? 90 }).toBuffer();
+            break;
         default:
             throw makeError('SHARP_ERROR', `Image renderer does not handle format: ${options.format}`);
     }
+    emit({ type: 'step-done', step: 'write-output' });
+    return buf;
 }

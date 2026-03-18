@@ -4,9 +4,15 @@
 The animated renderer SHALL accept an optional `ElementHandle` parameter alongside `page` and `RenderOptions`. When the `ElementHandle` is provided, it SHALL call `element.screenshot({ type: 'png' })` per frame instead of `page.screenshot({ type: 'png' })`. The `ElementHandle` bounding box SHALL be computed once before the loop begins. The rest of the loop behaviour (clock API, frame count, temp directory cleanup) is unchanged. Before the capture loop begins, it SHALL call `page.clock.install({ time: 0 })` to install a synthetic clock. For each frame, it SHALL call `page.clock.runFor(frameIntervalMs)` to advance the synthetic clock by one frame interval (firing all timers and rAF callbacks in that window), then take a Playwright screenshot. No real-time waiting between frames is permitted. The loop SHALL produce exactly `round(cycleMs / 1000 * fps)` frames (minimum 1).
 
 The animated renderer SHALL also accept an optional `onProgress?: (event: ProgressEvent) => void` parameter. When provided:
+- It SHALL emit `{ type: 'step-start', step: 'capture-frames' }` before the frame loop begins
 - It SHALL emit `{ type: 'frame-progress', current: i+1, total: frameCount }` after each frame is captured (throttled to at most 10 updates per second to avoid excessive terminal redraws)
+- It SHALL emit `{ type: 'step-done', step: 'capture-frames' }` after the loop completes (outside and after the throttled `frame-progress` events)
 - It SHALL emit `{ type: 'encode-format', format: options.format }` before encoding begins
-- It SHALL emit `{ type: 'encode-progress', pct: number }` events when fluent-ffmpeg emits progress data during encoding
+- It SHALL emit `{ type: 'encode-progress', pct: number }` events when fluent-ffmpeg emits progress data during encoding — `pct` SHALL be clamped to a maximum of 100 via `Math.min(100, Math.round(percent))` to prevent values above 100% when FFmpeg reports progress exceeding 100 during GIF two-pass palette generation
+
+After encoding completes, `renderAnimated()` SHALL emit `{ type: 'encode-done', format: string }` (uppercase format, e.g. `"GIF"`) before any subsequent step events. Following `encode-done`, it SHALL emit `{ type: 'step-start', step: 'write-output' }` and `{ type: 'step-done', step: 'write-output' }` to signal the final buffer handoff step.
+
+This allows consumers to eagerly start a spinner at loop start rather than waiting for the first `frame-progress` event.
 
 #### Scenario: Frame count proportional to cycle length
 - **WHEN** the animated renderer captures a 1000ms cycle at 30fps
@@ -32,6 +38,14 @@ The animated renderer SHALL also accept an optional `onProgress?: (event: Progre
 - **WHEN** the animated renderer is invoked with a non-null `ElementHandle`
 - **THEN** `element.boundingBox()` is called exactly once before the first frame is captured
 
+#### Scenario: capture-frames step-start emitted before first frame
+- **WHEN** `captureFrames` is invoked with a non-null `onProgress`
+- **THEN** `onProgress` receives `{ type: 'step-start', step: 'capture-frames' }` before any `frame-progress` event
+
+#### Scenario: capture-frames step-done emitted after last frame
+- **WHEN** `captureFrames` completes all frames and returns
+- **THEN** `onProgress` receives `{ type: 'step-done', step: 'capture-frames' }` as the final event from `captureFrames`
+
 #### Scenario: frame-progress events emitted during capture
 - **WHEN** `captureFrames` is invoked with a non-null `onProgress`
 - **THEN** `onProgress` receives `frame-progress` events with incrementing `current` values up to `total`
@@ -39,6 +53,18 @@ The animated renderer SHALL also accept an optional `onProgress?: (event: Progre
 #### Scenario: encode-progress events emitted during FFmpeg pass
 - **WHEN** `renderAnimated` is invoked with a non-null `onProgress` and FFmpeg emits progress
 - **THEN** `onProgress` receives one or more `encode-progress` events with `pct` between 0 and 100
+
+#### Scenario: encode-progress pct never exceeds 100
+- **WHEN** FFmpeg emits a progress event with a percent value above 100 (common in GIF two-pass encoding)
+- **THEN** the `encode-progress` event received by `onProgress` has `pct` clamped to `100`
+
+#### Scenario: encode-done emitted after encoding
+- **WHEN** `renderAnimated` completes FFmpeg encoding for any format
+- **THEN** `onProgress` receives `{ type: 'encode-done', format: 'GIF' | 'MP4' | 'WEBM' }` before the `write-output` step events
+
+#### Scenario: write-output step emitted after encode-done
+- **WHEN** `renderAnimated` completes encoding
+- **THEN** `onProgress` receives `step-start` then `step-done` for `'write-output'` after `encode-done`
 
 ### Requirement: FFmpeg GIF encoding
 The animated renderer SHALL encode the captured PNG frame sequence into a GIF using a two-pass FFmpeg process. **Pass 1** SHALL run FFmpeg on the frame sequence with the `palettegen` filter to produce a `palette.png` file in the temp directory — this generates a globally-optimal 256-color palette from the entire frame sequence. **Pass 2** SHALL run FFmpeg with the frame sequence and `palette.png` as separate inputs, using `-filter_complex "[0:v][1:v]paletteuse"` to produce the final GIF. The output GIF SHALL loop indefinitely (`-loop 0`). The intermediate `palette.png` SHALL be written to the same temp directory as the frames and cleaned up with them. The frame rate SHALL default to 30fps unless `options.fps` is set.

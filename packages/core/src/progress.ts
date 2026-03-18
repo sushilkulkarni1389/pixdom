@@ -3,6 +3,7 @@ export type ProgressEvent =
   | { type: 'step-done'; step: string }
   | { type: 'frame-progress'; current: number; total: number }
   | { type: 'encode-progress'; pct: number }
-  | { type: 'encode-format'; format: string };
+  | { type: 'encode-format'; format: string }
+  | { type: 'encode-done'; format: string };
 
 export type OnProgress = (event: ProgressEvent) => void;

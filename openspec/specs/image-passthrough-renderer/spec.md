@@ -9,6 +9,8 @@ The renderer SHALL also accept an optional `onProgress?: (event: ProgressEvent) 
 - It SHALL emit `{ type: 'step-start', step: 'resize' }` before any resize operation (only if resize is active)
 - It SHALL emit `{ type: 'step-done', step: 'resize' }` after resize completes
 
+After any resize step (or directly after `read-image` if no resize), `renderImage()` SHALL emit `{ type: 'step-start', step: 'write-output' }` before the Sharp `toBuffer()` call and `{ type: 'step-done', step: 'write-output' }` after it resolves. This applies to all output formats (png, jpeg, webp).
+
 #### Scenario: Valid image converts successfully
 - **WHEN** `render({ input: { type: 'image', path: '/valid/photo.jpg' }, format: 'png', ... })` is called
 - **THEN** `render()` returns `{ ok: true, value: <Buffer> }` with the converted PNG data
@@ -28,6 +30,10 @@ The renderer SHALL also accept an optional `onProgress?: (event: ProgressEvent) 
 #### Scenario: resize events emitted only when resize is active
 - **WHEN** `renderImage` is called with custom viewport dimensions and a non-null `onProgress`
 - **THEN** `onProgress` receives `step-start` and `step-done` for the `'resize'` step
+
+#### Scenario: write-output events emitted around Sharp encode
+- **WHEN** `renderImage` is called with a non-null `onProgress`
+- **THEN** `onProgress` receives `step-start` then `step-done` for `'write-output'` as the final step before the buffer is returned
 
 ### Requirement: Viewport-based resize
 When `options.viewport.width` or `options.viewport.height` differ from their defaults (1280 and 720 respectively), the image renderer SHALL resize the source image to fit within the specified dimensions using Sharp's `resize` with `fit: 'inside'`, preserving aspect ratio without cropping.

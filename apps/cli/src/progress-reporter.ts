@@ -8,6 +8,7 @@ const STEP_LABELS: Record<string, string> = {
   'detect-animation': 'Detecting animation',
   'capture': 'Capturing screenshot',
   'read-image': 'Reading image',
+  'write-output': 'Writing output',
 };
 
 export interface ProgressReporterContext {
@@ -48,6 +49,7 @@ export function createProgressReporter(
 
   let spinner: Ora | null = null;
   let currentEncodeFormat = '';
+  let lastFrameCount: { current: number; total: number } | null = null;
 
   const resizeLabel = context.profileName
     ? `Resizing for ${context.profileName}`
@@ -56,7 +58,9 @@ export function createProgressReporter(
   const onProgress: OnProgress = (event) => {
     switch (event.type) {
       case 'step-start': {
-        if (event.step === 'resize') {
+        if (event.step === 'capture-frames') {
+          spinner = ora({ text: 'Capturing frames', stream: process.stderr }).start();
+        } else if (event.step === 'resize') {
           spinner = ora({ text: resizeLabel, stream: process.stderr }).start();
         } else {
           const label = STEP_LABELS[event.step];
@@ -68,7 +72,12 @@ export function createProgressReporter(
       }
       case 'step-done': {
         if (spinner) {
-          if (event.step === 'resize') {
+          if (event.step === 'capture-frames') {
+            const label = lastFrameCount
+              ? `Capturing frames (${lastFrameCount.current}/${lastFrameCount.total})`
+              : 'Capturing frames';
+            spinner.succeed(label);
+          } else if (event.step === 'resize') {
             spinner.succeed(resizeLabel);
           } else {
             const label = STEP_LABELS[event.step];
@@ -79,13 +88,9 @@ export function createProgressReporter(
         break;
       }
       case 'frame-progress': {
+        lastFrameCount = { current: event.current, total: event.total };
         if (spinner) {
           spinner.text = `Capturing frames (${event.current}/${event.total})`;
-        } else {
-          spinner = ora({
-            text: `Capturing frames (${event.current}/${event.total})`,
-            stream: process.stderr,
-          }).start();
         }
         break;
       }
@@ -100,15 +105,22 @@ export function createProgressReporter(
         }
         break;
       }
+      case 'encode-done': {
+        if (spinner) {
+          spinner.succeed(`Encoding ${event.format} (100%)`);
+          spinner = null;
+        }
+        break;
+      }
     }
   };
 
   const finish = (outputPath: string): void => {
     const elapsed = Date.now() - startMs;
     const duration = formatDuration(elapsed);
-    // Finish any lingering spinner (e.g. encode step) then print summary
+    // Stop any active spinner before printing the Done line
     if (spinner) {
-      spinner.succeed(`Encoding ${currentEncodeFormat}`);
+      spinner.stop();
       spinner = null;
     }
     ora({ stream: process.stderr }).succeed(`Done in ${duration} → ${outputPath}`);

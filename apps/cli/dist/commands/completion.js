@@ -101,7 +101,15 @@ export function registerCompletion(program) {
     });
     // Intercepts --compgen N <word> <line...> injected by the shell during TAB expansion.
     // Outputs completions and exits; no-op in normal execution.
-    completion.init();
+    // try/catch: omelette's tree traversal crashes when flag values appear alongside --file/--image
+    // (reduce() walks the tree with flag names as keys; a bare value hits undefined and throws).
+    // Swallowing the error lets bash fall through to native filename completion.
+    try {
+        completion.init();
+    }
+    catch {
+        // ignore — bash uses default completion
+    }
     program
         .command('completion')
         .description('Print shell completion script to stdout')

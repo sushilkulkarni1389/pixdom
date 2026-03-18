@@ -194,7 +194,8 @@ export type ProgressEvent =
   | { type: 'step-done'; step: string }
   | { type: 'frame-progress'; current: number; total: number }
   | { type: 'encode-progress'; pct: number }
-  | { type: 'encode-format'; format: string };
+  | { type: 'encode-format'; format: string }
+  | { type: 'encode-done'; format: string };
 ```
 
 #### Scenario: onProgress omitted — render succeeds without callback
@@ -212,3 +213,7 @@ export type ProgressEvent =
 #### Scenario: ProgressEvent type exported from core
 - **WHEN** TypeScript code does `import type { ProgressEvent } from '@pixdom/core'`
 - **THEN** compilation succeeds and all event variants are accessible
+
+#### Scenario: encode-done variant in ProgressEvent type
+- **WHEN** TypeScript code does `import type { ProgressEvent } from '@pixdom/core'`
+- **THEN** the `encode-done` variant is accessible with `type: 'encode-done'` and `format: string`

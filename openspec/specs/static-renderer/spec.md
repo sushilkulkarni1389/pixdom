@@ -5,6 +5,8 @@ The static renderer SHALL accept an optional `ElementHandle` parameter alongside
 
 The static renderer SHALL also accept an optional `onProgress?: (event: ProgressEvent) => void` parameter. When provided, it SHALL emit `{ type: 'step-start', step: 'capture' }` before taking the screenshot and `{ type: 'step-done', step: 'capture' }` after.
 
+After capturing the screenshot, `renderStatic()` SHALL emit `{ type: 'step-start', step: 'write-output' }` before the Sharp `toBuffer()` call and `{ type: 'step-done', step: 'write-output' }` after it resolves. This applies to all output formats (png, jpeg, webp).
+
 #### Scenario: Screenshot returns buffer
 - **WHEN** the static renderer is invoked on a loaded page without a selector
 - **THEN** it returns a non-empty `Buffer` containing valid PNG data
@@ -20,6 +22,10 @@ The static renderer SHALL also accept an optional `onProgress?: (event: Progress
 #### Scenario: capture events emitted when onProgress provided
 - **WHEN** `renderStatic(page, options, element, onProgress)` is called with a non-null `onProgress`
 - **THEN** `onProgress` receives `step-start` then `step-done` for the `'capture'` step
+
+#### Scenario: write-output events emitted around Sharp encode
+- **WHEN** `renderStatic(page, options, element, onProgress)` is called
+- **THEN** `onProgress` receives `step-start` then `step-done` for `'write-output'` bracketing the Sharp format conversion
 
 ### Requirement: Sharp format encoding
 The static renderer SHALL pass the Playwright PNG screenshot buffer through Sharp and encode it to the requested `OutputFormat` (`png | jpeg | webp`) with the `quality` setting from `RenderOptions`.

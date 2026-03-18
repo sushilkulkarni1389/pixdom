@@ -3,6 +3,17 @@
 ### Requirement: ora spinner step display
 The CLI progress reporter SHALL use the `ora` package to display a spinner for each active step. Each step SHALL transition from a spinning state to a `✓` success mark when completed. Steps SHALL be written to stderr only. When `--no-progress` is set or when stderr is not a TTY, no spinner output SHALL be emitted.
 
+The `STEP_LABELS` map SHALL include `'write-output': 'Writing output'` so that `step-start`/`step-done` events for the `write-output` step display a "Writing output" spinner.
+
+The reporter SHALL handle the `encode-done` event by calling `spinner.succeed(\`Encoding ${event.format} (100%)\`)` and setting `spinner = null`. This ensures the encode spinner is properly closed with a success mark before the `write-output` spinner begins.
+
+The reporter SHALL handle the `capture-frames` step explicitly:
+- On `step-start` with `step: 'capture-frames'` it SHALL immediately start a new spinner with text `"Capturing frames"`.
+- On `frame-progress` events it SHALL update the existing spinner text in place (`"Capturing frames (N/total)"`); it SHALL NOT create a new spinner from a `frame-progress` event.
+- On `step-done` with `step: 'capture-frames'` it SHALL succeed the spinner using the last known frame count (e.g. `"Capturing frames (30/30)"`) or `"Capturing frames"` if no `frame-progress` was received.
+
+`reporter.finish()` SHALL call `spinner.stop()` on any currently active spinner before printing the Done summary line, ensuring no spinner is left running after the operation completes.
+
 #### Scenario: Steps appear on stderr during render
 - **WHEN** `pixdom convert --html "<div></div>" --format png` is run in a TTY
 - **THEN** stderr shows at least "Loading page" and "Capturing screenshot" lines with success marks before the process exits
@@ -14,6 +25,26 @@ The CLI progress reporter SHALL use the `ora` package to display a spinner for e
 #### Scenario: Non-TTY stderr suppresses spinner
 - **WHEN** `pixdom convert --html "<div></div>" --format png 2>/dev/null` is run (stderr redirected)
 - **THEN** no spinner escape sequences are emitted to the redirected output
+
+#### Scenario: Capturing frames spinner started eagerly
+- **WHEN** `step-start` with `step: 'capture-frames'` is received
+- **THEN** a spinner with text `"Capturing frames"` starts immediately — before any `frame-progress` event arrives
+
+#### Scenario: frame-progress updates spinner in place
+- **WHEN** `frame-progress` events arrive after `step-start 'capture-frames'`
+- **THEN** the existing spinner text is updated to `"Capturing frames (N/total)"` — no new spinner line is created
+
+#### Scenario: No dangling spinner after finish()
+- **WHEN** `reporter.finish()` is called while a spinner is still active
+- **THEN** the spinner is stopped before the Done summary line is printed and no spinner continues after exit
+
+#### Scenario: write-output spinner shown for all renderers
+- **WHEN** any renderer emits `step-start 'write-output'`
+- **THEN** a spinner with text `"Writing output"` is shown and succeeded on `step-done 'write-output'`
+
+#### Scenario: encode-done succeeds encode spinner
+- **WHEN** `encode-done` is received after FFmpeg encoding
+- **THEN** the encode spinner is succeeded with `"Encoding GIF (100%)"` (or MP4/WEBM) and no spinner remains active
 
 ### Requirement: Conditional step visibility
 Steps SHALL only be shown when the corresponding operation is actually performed. Steps for operations that are skipped SHALL NOT appear in the output.

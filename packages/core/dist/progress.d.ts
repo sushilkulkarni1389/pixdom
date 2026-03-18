@@ -14,6 +14,9 @@ export type ProgressEvent = {
 } | {
     type: 'encode-format';
     format: string;
+} | {
+    type: 'encode-done';
+    format: string;
 };
 export type OnProgress = (event: ProgressEvent) => void;
 //# sourceMappingURL=progress.d.ts.map
