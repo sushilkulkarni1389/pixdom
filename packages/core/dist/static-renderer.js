@@ -1,6 +1,11 @@
 import sharp from 'sharp';
-export async function renderStatic(page, options) {
-    const screenshot = await page.screenshot({ type: 'png', fullPage: false });
+export async function renderStatic(page, options, element, onProgress) {
+    const emit = onProgress ?? (() => { });
+    emit({ type: 'step-start', step: 'capture' });
+    const screenshot = element
+        ? await element.screenshot({ type: 'png' })
+        : await page.screenshot({ type: 'png', fullPage: false });
+    emit({ type: 'step-done', step: 'capture' });
     const image = sharp(screenshot);
     switch (options.format) {
         case 'png':

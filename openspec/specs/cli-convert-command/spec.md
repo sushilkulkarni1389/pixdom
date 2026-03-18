@@ -38,15 +38,23 @@ The `convert` subcommand SHALL accept `--html <string>`, `--file <path>`, and `-
 - **THEN** stderr contains an error message and the process exits with code 1
 
 ### Requirement: --profile flag
-The `convert` subcommand SHALL accept `--profile <id>` where `id` is one of `instagram | twitter | linkedin | square`. When provided, `width`, `height`, `format`, and `quality` SHALL be pre-filled from the matching preset. Individual override flags applied alongside `--profile` SHALL take precedence.
+The `convert` subcommand SHALL accept `--profile <slug>` where `slug` is any canonical `ProfileSlug` value or any legacy alias (`instagram`, `twitter`, `linkedin`). When provided, `width`, `height`, `format`, and `quality` SHALL be pre-filled from the resolved preset via `resolveProfile()`. Individual override flags applied alongside `--profile` SHALL take precedence. The `--profile` flag's `--help` output SHALL enumerate all valid slugs grouped by platform.
 
-#### Scenario: Profile sets dimensions
-- **WHEN** `pixdom convert --html "x" --profile instagram` is run
+#### Scenario: Canonical slug sets dimensions
+- **WHEN** `pixdom convert --html "x" --profile instagram-post-square` is run
 - **THEN** the output image has dimensions 1080×1080
 
+#### Scenario: Legacy slug still resolves
+- **WHEN** `pixdom convert --html "x" --profile instagram` is run
+- **THEN** the output image has dimensions 1080×1080 (resolves to `instagram-post-square`)
+
+#### Scenario: New namespaced slug sets correct dimensions
+- **WHEN** `pixdom convert --html "x" --profile linkedin-background` is run
+- **THEN** the output image has dimensions 1584×396 and format is jpeg
+
 #### Scenario: Profile flag with format override
-- **WHEN** `pixdom convert --html "x" --profile instagram --format jpeg` is run
-- **THEN** the output is a JPEG (not the profile's default webp)
+- **WHEN** `pixdom convert --html "x" --profile instagram-post-square --format jpeg` is run
+- **THEN** the output is a JPEG (overrides the profile's default jpeg — no behavioural change)
 
 #### Scenario: Invalid profile exits with error
 - **WHEN** `pixdom convert --html "x" --profile tiktok` is run
@@ -130,6 +138,42 @@ The `convert` subcommand SHALL accept `--auto-size` as a boolean flag (no value)
 - **WHEN** `pixdom convert --html "..." --auto-size --width 600` is run
 - **THEN** the output width is 600px and the height is auto-detected from content
 
+### Requirement: --selector flag
+The `convert` subcommand SHALL accept `--selector <css>` as an optional string flag. When provided, its value SHALL be passed as `RenderOptions.selector`. The flag SHALL be documented in `--help` output.
+
+#### Scenario: --selector passed to render
+- **WHEN** `pixdom convert --html "<div id='x'>" --selector "#x"` is run
+- **THEN** `RenderOptions.selector` is set to `"#x"` and `render()` is called with that value
+
+#### Scenario: --selector absent leaves selector undefined
+- **WHEN** `pixdom convert --html "..."` is run without `--selector`
+- **THEN** `RenderOptions.selector` is `undefined` and full-viewport capture proceeds
+
+### Requirement: --selector warns when combined with --width or --height
+When `--selector` is provided alongside `--width` or `--height`, the CLI SHALL write a warning to stderr before calling `render()`. The `--width`/`--height` values SHALL NOT be passed into `RenderOptions.viewport` — the element bounding box determines output dimensions. The process SHALL NOT exit with an error.
+
+#### Scenario: --width with --selector emits warning
+- **WHEN** `pixdom convert --html "..." --selector "#x" --width 1280` is run
+- **THEN** stderr contains a warning that `--width` is ignored because `--selector` is active, and the process continues
+
+#### Scenario: --height with --selector emits warning
+- **WHEN** `pixdom convert --html "..." --selector "#x" --height 720` is run
+- **THEN** stderr contains a warning that `--height` is ignored because `--selector` is active, and the process continues
+
+### Requirement: --selector suppresses --auto-size
+When `--selector` is provided alongside `--auto-size`, `RenderOptions.autoSize` SHALL be set to `false` (or omitted). The CLI MAY omit a warning for this combination; suppression is silent.
+
+#### Scenario: --auto-size silently suppressed when --selector active
+- **WHEN** `pixdom convert --html "..." --selector "#x" --auto-size` is run
+- **THEN** `RenderOptions.autoSize` is `false` (or undefined) and element bounding box drives output dimensions
+
+### Requirement: --selector ignored for --image input
+When `--selector` is provided alongside `--image`, the CLI SHALL write a warning to stderr that `--selector` is not supported for image inputs, and SHALL proceed without passing `selector` to `render()`.
+
+#### Scenario: --selector with --image emits warning and proceeds
+- **WHEN** `pixdom convert --image photo.jpg --selector "#x"` is run
+- **THEN** stderr contains a warning that `--selector` is ignored for `--image` inputs, and the process exits with code 0 (assuming successful image conversion)
+
 ### Requirement: Chromium browser auto-installed on package install
 `apps/cli/package.json` SHALL include a `postinstall` script that runs `playwright install chromium`. This script SHALL execute automatically after any `npm install`, `pnpm install`, or `yarn` invocation on the `apps/cli` package, ensuring the Chromium binary is available without manual intervention.
 
@@ -155,3 +199,69 @@ The `convert` subcommand SHALL accept `--image <path>` as a fourth mutually-excl
 #### Scenario: --image with animated format exits with error
 - **WHEN** `pixdom convert --image photo.jpg --format gif` is run
 - **THEN** the process exits with code 1 (CAPTURE_FAILED propagated from render)
+
+### Requirement: Structured error output replaces terse message
+The `convert` subcommand SHALL pass all `render()` errors through the `formatError()` function from `apps/cli/src/error-formatter.ts` before writing to stderr. The current pattern of `process.stderr.write(\`Error: ${result.error.message} (code: ${result.error.code})\n\`)` SHALL be replaced entirely.
+
+#### Scenario: NO_ANIMATION_DETECTED shows structured output
+- **WHEN** `pixdom convert --html "<div></div>" --format gif` is run and no animation is detected
+- **THEN** stderr contains structured lines (`What happened:`, `How to fix:`, `Docs:`) rather than a single `Error:` line
+
+#### Scenario: SELECTOR_NOT_FOUND shows selector value in message
+- **WHEN** `pixdom convert --html "<div></div>" --selector "#missing" --format png` is run
+- **THEN** stderr `What happened:` line includes the selector string `#missing`
+
+### Requirement: --no-color global flag
+The CLI SHALL accept `--no-color` as a global flag on the root `pixdom` program (not scoped to `convert`). Its value SHALL be passed to `formatError()` to suppress ANSI color output. Absence of `--no-color` defaults to color-enabled if stderr is a TTY.
+
+#### Scenario: --no-color accepted without error
+- **WHEN** `pixdom --no-color convert --html "x" --format gif` is run
+- **THEN** the process does not exit with a flag-parsing error
+
+#### Scenario: --no-color in help output
+- **WHEN** `pixdom --help` is run
+- **THEN** `--no-color` appears in the help text
+
+### Requirement: File validation errors use structured format
+`INVALID_FILE_TYPE`, `FILE_NOT_FOUND`, and `IMAGE_NOT_FOUND` errors detected at CLI parse time SHALL be formatted through `formatError()` in the same five-field structure as render errors before writing to stderr.
+
+#### Scenario: INVALID_FILE_TYPE formatted as structured error
+- **WHEN** `pixdom convert --file report.pdf` is run
+- **THEN** stderr contains `What happened:` and `How to fix:` lines and the process exits with code 1
+
+#### Scenario: FILE_NOT_FOUND formatted as structured error
+- **WHEN** `pixdom convert --file /nonexistent.html` is run
+- **THEN** stderr contains `What happened:` naming the missing file and `How to fix:` with path resolution guidance
+
+### Requirement: --no-progress global flag
+The CLI SHALL accept `--no-progress` as a global boolean flag on the root `pixdom` program. When set, or when stderr is not a TTY, no progress output SHALL be emitted. The flag SHALL appear in `--help` output.
+
+#### Scenario: --no-progress accepted without error
+- **WHEN** `pixdom --no-progress convert --html "x" --format png` is run
+- **THEN** the process exits with code 0 and stderr contains no spinner characters
+
+#### Scenario: --no-progress in help output
+- **WHEN** `pixdom --help` is run
+- **THEN** `--no-progress` appears in the help text
+
+### Requirement: Progress reporter wired into render()
+The `convert` subcommand SHALL construct a `ProgressReporter` (from `apps/cli/src/progress-reporter.ts`) and pass its `onProgress` callback to `render()`. When `--no-progress` is set or stderr is not a TTY, a no-op callback SHALL be passed instead.
+
+#### Scenario: Progress shown during static render in TTY
+- **WHEN** `pixdom convert --html "<div></div>" --format png` is run with stderr connected to a TTY
+- **THEN** stderr contains step completion lines (e.g. "✓ Loading page") before the output path is printed
+
+#### Scenario: Stdout remains clean with progress active
+- **WHEN** `pixdom convert --html "<div></div>" --format png --output /tmp/out.png` is run
+- **THEN** stdout contains only the output file path (`/tmp/out.png`) and stderr contains the progress lines and the final `Done in` summary line
+
+### Requirement: Resize step shown conditionally
+The "Resizing" progress step SHALL only be shown when a resize operation is actually performed: when `--profile` is set, or when `--width`/`--height` differ from their defaults for image passthrough, or when a profile changes the effective dimensions. When no resize is performed, the step SHALL be absent.
+
+#### Scenario: Resize step absent for default HTML render
+- **WHEN** `pixdom convert --html "<div></div>" --format png` is run
+- **THEN** stderr does NOT contain a "Resizing" step label
+
+#### Scenario: Resize step present with --profile
+- **WHEN** `pixdom convert --html "..." --profile linkedin-post --format jpeg` is run
+- **THEN** stderr contains a resize step label including the profile slug

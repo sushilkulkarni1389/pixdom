@@ -107,8 +107,45 @@ When `options.input.type === 'image'`, `render()` SHALL dispatch to the image pa
 - **WHEN** `render({ format: 'png', duration: 2000, ... })` is called
 - **THEN** the static renderer is used and the `duration` field has no effect
 
+### Requirement: selector field in RenderOptions
+`RenderOptionsSchema` SHALL include an optional `selector` field of type `string`. When omitted or `undefined`, existing full-viewport capture behaviour is unchanged. The field SHALL be passed through to the static and animated renderers.
+
+#### Scenario: selector accepted in RenderOptions
+- **WHEN** `RenderOptionsSchema.parse({ ..., selector: '#canvas' })` is called
+- **THEN** the schema parses successfully with `selector === '#canvas'`
+
+#### Scenario: selector omitted does not break existing calls
+- **WHEN** `RenderOptionsSchema.parse({ input, format, viewport })` is called without `selector`
+- **THEN** the parsed value has `selector` equal to `undefined` and no validation error is thrown
+
+### Requirement: SELECTOR_NOT_FOUND error code
+`render()` SHALL return `{ ok: false, error: { code: 'SELECTOR_NOT_FOUND', message: string } }` when `options.selector` is set and either (a) `page.$(selector)` returns `null` or (b) the resolved element's `boundingBox()` returns `null`. The message SHALL include the selector string for debuggability.
+
+#### Scenario: SELECTOR_NOT_FOUND returned for missing element
+- **WHEN** `render({ selector: '#nope', input: { type: 'html', html: '<div></div>' }, ... })` is called
+- **THEN** `render()` returns `{ ok: false, error: { code: 'SELECTOR_NOT_FOUND', message: "Selector '#nope' matched no elements in the page" } }`
+
+### Requirement: Element resolved before render dispatch
+When `options.selector` is set and `input.type !== 'image'`, `render()` SHALL call `page.$(selector)` after page load and before dispatching to the static or animated renderer. The resolved `ElementHandle` (or first match when multiple exist) SHALL be passed to the renderer. If no element is found, `render()` SHALL return `SELECTOR_NOT_FOUND` without entering the renderer.
+
+#### Scenario: Element handle passed to static renderer
+- **WHEN** `render({ selector: '#el', format: 'png', ... })` is called on a page where `#el` exists
+- **THEN** the static renderer receives a non-null `ElementHandle` and uses `element.screenshot()`
+
+#### Scenario: Element handle passed to animated renderer
+- **WHEN** `render({ selector: '#el', format: 'gif', ... })` is called on a page where `#el` exists with animation
+- **THEN** the animated renderer receives a non-null `ElementHandle` and uses `element.screenshot()` per frame
+
+#### Scenario: autoSize skipped when selector active
+- **WHEN** `render({ selector: '#el', autoSize: true, ... })` is called
+- **THEN** `document.documentElement.scrollHeight` is never queried and the viewport is not resized by autoSize logic
+
+#### Scenario: image input ignores selector
+- **WHEN** `render({ selector: '#el', input: { type: 'image', path: '...' }, ... })` is called
+- **THEN** the image passthrough renderer is invoked without attempting DOM element resolution
+
 ### Requirement: RenderError codes
-`render()` SHALL return typed errors using the following `code` values: `'BROWSER_LAUNCH_FAILED'`, `'PAGE_LOAD_FAILED'`, `'CAPTURE_FAILED'`, `'ENCODE_FAILED'`, `'NO_ANIMATION_DETECTED'`. No unhandled exceptions SHALL propagate to the caller.
+`render()` SHALL return typed errors using the following `code` values: `'BROWSER_LAUNCH_FAILED'`, `'PAGE_LOAD_FAILED'`, `'CAPTURE_FAILED'`, `'ENCODE_FAILED'`, `'NO_ANIMATION_DETECTED'`, `'SELECTOR_NOT_FOUND'`. No unhandled exceptions SHALL propagate to the caller.
 
 #### Scenario: Page load failure returns PAGE_LOAD_FAILED
 - **WHEN** `page.goto` throws (e.g., invalid URL, network error)
@@ -117,3 +154,61 @@ When `options.input.type === 'image'`, `render()` SHALL dispatch to the image pa
 #### Scenario: All errors are caught
 - **WHEN** any internal operation throws an unexpected error
 - **THEN** `render()` returns a `Result.err` rather than throwing
+
+### Requirement: New RenderErrorCode values
+`RenderErrorCode` in `packages/core/src/errors.ts` SHALL include the following additional codes: `'INVALID_FILE_TYPE'`, `'FILE_NOT_FOUND'`, `'IMAGE_NOT_FOUND'`, `'SHARP_ERROR'`. These SHALL be added to the union alongside existing codes without removing any existing values.
+
+#### Scenario: New codes accepted by makeError
+- **WHEN** `makeError('FILE_NOT_FOUND', 'File not found', undefined)` is called
+- **THEN** TypeScript compiles without error and the returned object has `code === 'FILE_NOT_FOUND'`
+
+#### Scenario: New codes accepted by makeError — IMAGE_NOT_FOUND
+- **WHEN** `makeError('IMAGE_NOT_FOUND', 'Image not found', undefined)` is called
+- **THEN** TypeScript compiles without error
+
+### Requirement: hints field on RenderError
+`RenderError` interface SHALL include an optional `hints?: string[]` field. When `makeError()` is called without a `hints` argument, the field is omitted. When provided, it is included in the returned error object.
+
+#### Scenario: hints omitted by default
+- **WHEN** `makeError('NO_ANIMATION_DETECTED', 'No animation', undefined)` is called
+- **THEN** the returned object does not have a `hints` property
+
+#### Scenario: hints included when provided
+- **WHEN** `makeError('NO_ANIMATION_DETECTED', 'No animation', undefined, ['try --duration 2000'])` is called
+- **THEN** the returned object has `hints === ['try --duration 2000']`
+
+### Requirement: FILE_NOT_FOUND emitted for missing file inputs
+`render()` SHALL check whether the input file path exists before launching the browser. If `options.input.type === 'file'` and the resolved path does not exist on the filesystem, `render()` SHALL return `{ ok: false, error: { code: 'FILE_NOT_FOUND', message: string } }` without launching a browser.
+
+#### Scenario: FILE_NOT_FOUND returned for missing file path
+- **WHEN** `render({ input: { type: 'file', path: '/nonexistent/page.html' }, ... })` is called
+- **THEN** `render()` returns `{ ok: false, error: { code: 'FILE_NOT_FOUND', ... } }` and no browser is launched
+
+### Requirement: onProgress callback in render()
+`render()` SHALL accept an optional `onProgress?: (event: ProgressEvent) => void` parameter as part of a second options argument or directly alongside `RenderOptions`. When omitted or `undefined`, all progress event calls SHALL be no-ops. The callback SHALL be forwarded to the static renderer, animated renderer, and image renderer.
+
+`ProgressEvent` SHALL be a discriminated union exported from `packages/core`:
+```ts
+export type ProgressEvent =
+  | { type: 'step-start'; step: string }
+  | { type: 'step-done'; step: string }
+  | { type: 'frame-progress'; current: number; total: number }
+  | { type: 'encode-progress'; pct: number }
+  | { type: 'encode-format'; format: string };
+```
+
+#### Scenario: onProgress omitted — render succeeds without callback
+- **WHEN** `render(options)` is called without an `onProgress` argument
+- **THEN** `render()` completes successfully and no error is thrown
+
+#### Scenario: onProgress receives step-start and step-done for page load
+- **WHEN** `render(options, { onProgress: handler })` is called with an HTML input
+- **THEN** `handler` is called with `{ type: 'step-start', step: 'load-page' }` before page load and `{ type: 'step-done', step: 'load-page' }` after
+
+#### Scenario: onProgress receives step events for selector resolution
+- **WHEN** `render({ ...options, selector: '#x' }, { onProgress: handler })` is called
+- **THEN** `handler` is called with step events for selector resolution after page load
+
+#### Scenario: ProgressEvent type exported from core
+- **WHEN** TypeScript code does `import type { ProgressEvent } from '@pixdom/core'`
+- **THEN** compilation succeeds and all event variants are accessible

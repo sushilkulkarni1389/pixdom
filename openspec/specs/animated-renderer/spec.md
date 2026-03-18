@@ -1,7 +1,12 @@
 # animated-renderer — requirements
 
 ### Requirement: rAF frame capture loop
-The animated renderer SHALL capture frames using Playwright's Clock API. Before the capture loop begins, it SHALL call `page.clock.install({ time: 0 })` to install a synthetic clock. For each frame, it SHALL call `page.clock.runFor(frameIntervalMs)` to advance the synthetic clock by one frame interval (firing all timers and rAF callbacks in that window), then take a Playwright screenshot. No real-time waiting between frames is permitted. The loop SHALL produce exactly `round(cycleMs / 1000 * fps)` frames (minimum 1).
+The animated renderer SHALL accept an optional `ElementHandle` parameter alongside `page` and `RenderOptions`. When the `ElementHandle` is provided, it SHALL call `element.screenshot({ type: 'png' })` per frame instead of `page.screenshot({ type: 'png' })`. The `ElementHandle` bounding box SHALL be computed once before the loop begins. The rest of the loop behaviour (clock API, frame count, temp directory cleanup) is unchanged. Before the capture loop begins, it SHALL call `page.clock.install({ time: 0 })` to install a synthetic clock. For each frame, it SHALL call `page.clock.runFor(frameIntervalMs)` to advance the synthetic clock by one frame interval (firing all timers and rAF callbacks in that window), then take a Playwright screenshot. No real-time waiting between frames is permitted. The loop SHALL produce exactly `round(cycleMs / 1000 * fps)` frames (minimum 1).
+
+The animated renderer SHALL also accept an optional `onProgress?: (event: ProgressEvent) => void` parameter. When provided:
+- It SHALL emit `{ type: 'frame-progress', current: i+1, total: frameCount }` after each frame is captured (throttled to at most 10 updates per second to avoid excessive terminal redraws)
+- It SHALL emit `{ type: 'encode-format', format: options.format }` before encoding begins
+- It SHALL emit `{ type: 'encode-progress', pct: number }` events when fluent-ffmpeg emits progress data during encoding
 
 #### Scenario: Frame count proportional to cycle length
 - **WHEN** the animated renderer captures a 1000ms cycle at 30fps
@@ -13,11 +18,27 @@ The animated renderer SHALL capture frames using Playwright's Clock API. Before 
 
 #### Scenario: Capture completes without real-time waiting
 - **WHEN** a 2000ms animation cycle is captured at 30fps
-- **THEN** the total host-side wall-clock time for `captureFrames` is under 10 seconds (not ~2+ seconds of real-time waiting)
+- **THEN** the total host-side wall-clock time for `captureFrames` is under 10 seconds
 
 #### Scenario: Temp directory cleaned up after render
 - **WHEN** `render()` returns (success or failure)
 - **THEN** the per-call temp directory and all frame files are deleted
+
+#### Scenario: Element screenshot used per frame when handle provided
+- **WHEN** the animated renderer is invoked with a non-null `ElementHandle`
+- **THEN** `element.screenshot()` is called for each frame instead of `page.screenshot()`
+
+#### Scenario: Bounding box computed once before frame loop
+- **WHEN** the animated renderer is invoked with a non-null `ElementHandle`
+- **THEN** `element.boundingBox()` is called exactly once before the first frame is captured
+
+#### Scenario: frame-progress events emitted during capture
+- **WHEN** `captureFrames` is invoked with a non-null `onProgress`
+- **THEN** `onProgress` receives `frame-progress` events with incrementing `current` values up to `total`
+
+#### Scenario: encode-progress events emitted during FFmpeg pass
+- **WHEN** `renderAnimated` is invoked with a non-null `onProgress` and FFmpeg emits progress
+- **THEN** `onProgress` receives one or more `encode-progress` events with `pct` between 0 and 100
 
 ### Requirement: FFmpeg GIF encoding
 The animated renderer SHALL encode the captured PNG frame sequence into a GIF using a two-pass FFmpeg process. **Pass 1** SHALL run FFmpeg on the frame sequence with the `palettegen` filter to produce a `palette.png` file in the temp directory — this generates a globally-optimal 256-color palette from the entire frame sequence. **Pass 2** SHALL run FFmpeg with the frame sequence and `palette.png` as separate inputs, using `-filter_complex "[0:v][1:v]paletteuse"` to produce the final GIF. The output GIF SHALL loop indefinitely (`-loop 0`). The intermediate `palette.png` SHALL be written to the same temp directory as the frames and cleaned up with them. The frame rate SHALL default to 30fps unless `options.fps` is set.

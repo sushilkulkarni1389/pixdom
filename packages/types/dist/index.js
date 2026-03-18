@@ -24,9 +24,38 @@ export const RenderOptionsSchema = z.object({
     fps: z.number().optional(),
     duration: z.number().optional(),
     autoSize: z.boolean().optional(),
+    selector: z.string().optional(),
 });
-// ProfileId — string union
-export const ProfileIdSchema = z.enum(['instagram', 'twitter', 'linkedin', 'square']);
+// ProfileId — full union: 19 canonical slugs + 3 legacy aliases
+export const ProfileIdSchema = z.enum([
+    // LinkedIn (6)
+    'linkedin-background',
+    'linkedin-post',
+    'linkedin-article-cover',
+    'linkedin-profile',
+    'linkedin-single-image-ad',
+    'linkedin-career-background',
+    // Twitter/X (5)
+    'twitter-post',
+    'twitter-header',
+    'twitter-ad',
+    'twitter-video',
+    'twitter-ad-landscape',
+    // Instagram (7)
+    'instagram-post-3-4',
+    'instagram-post-4-5',
+    'instagram-post-square',
+    'instagram-story',
+    'instagram-reel',
+    'instagram-profile',
+    'instagram-story-video',
+    // Generic (1)
+    'square',
+    // Legacy aliases (3)
+    'instagram',
+    'twitter',
+    'linkedin',
+]);
 // Profile
 export const ProfileSchema = z.object({
     id: ProfileIdSchema,
@@ -34,6 +63,8 @@ export const ProfileSchema = z.object({
     height: z.number(),
     format: OutputFormatSchema,
     quality: z.number(),
+    label: z.string(),
+    group: z.string(),
     fps: z.number().optional(),
 });
 // AnimationResult

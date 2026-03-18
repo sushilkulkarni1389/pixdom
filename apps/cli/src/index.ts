@@ -3,14 +3,22 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { program } from 'commander';
 import { render } from '@pixdom/core';
-import { getProfile, PROFILES } from '@pixdom/profiles';
+import { resolveProfile, PROFILES } from '@pixdom/profiles';
 import { ProfileIdSchema } from '@pixdom/types';
 import type { RenderInput, OutputFormat, ProfileId } from '@pixdom/types';
+import { registerCompletion } from './commands/completion.js';
+import { formatError } from './error-formatter.js';
+import { validateFileInput } from './validate-input.js';
+import { createProgressReporter } from './progress-reporter.js';
+
+const originalArgv = process.argv.slice(2);
 
 program
   .name('pixdom')
   .description('Convert HTML to platform-ready images and animated assets')
-  .version('0.1.0');
+  .version('0.1.0')
+  .option('--no-color', 'Disable ANSI color in error output')
+  .option('--no-progress', 'Disable progress spinner output');
 
 program
   .command('convert')
@@ -18,7 +26,10 @@ program
   .option('--html <string>', 'Inline HTML string to render')
   .option('--file <path>', 'Local HTML file path to render')
   .option('--url <url>', 'Remote URL to render')
-  .option('--profile <id>', `Platform preset (${Object.keys(PROFILES).join(' | ')})`)
+  .option(
+    '--profile <slug>',
+    `Platform profile slug. Canonical: ${Object.keys(PROFILES).join(', ')}. Legacy aliases: instagram → instagram-post-square, twitter → twitter-post, linkedin → linkedin-post`,
+  )
   .option('--output <path>', 'Output file path (default: ./pixdom-output.<format>)')
   .option('--format <fmt>', 'Output format: png | jpeg | webp | gif | mp4 | webm', 'png')
   .option('--width <n>', 'Viewport width in pixels', '1280')
@@ -28,15 +39,24 @@ program
   .option('--fps <n>', 'Frame rate for animated output (gif/mp4/webm)')
   .option('--duration <ms>', 'Animation cycle length in ms (overrides auto-detection)')
   .option('--auto-size', 'Auto-detect output dimensions from page content')
+  .option('--selector <css>', 'CSS selector to capture a specific DOM element (e.g. "#canvas", ".card")')
   .action(async (opts) => {
+    const globalOpts = program.opts<{ color: boolean; progress: boolean }>();
+    const color =
+      globalOpts.color !== false &&
+      process.env['NO_COLOR'] === undefined &&
+      !!process.stderr.isTTY;
+    const noProgress = globalOpts.progress === false || !process.stderr.isTTY;
     try {
-      await convertAction(opts);
+      await convertAction(opts, { argv: originalArgv, color, noProgress });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(`Error: ${msg}\n`);
       process.exit(1);
     }
   });
+
+registerCompletion(program);
 
 program.parse();
 
@@ -56,9 +76,10 @@ interface ConvertOpts {
   fps?: string;
   duration?: string;
   autoSize?: boolean;
+  selector?: string;
 }
 
-async function convertAction(opts: ConvertOpts): Promise<void> {
+async function convertAction(opts: ConvertOpts, fmt: { argv: string[]; color: boolean; noProgress: boolean }): Promise<void> {
   // 2.2 Input mutex validation
   const inputFlags = [opts.html, opts.file, opts.url, opts.image].filter((v) => v !== undefined);
   if (inputFlags.length === 0) {
@@ -82,6 +103,22 @@ async function convertAction(opts: ConvertOpts): Promise<void> {
     input = { type: 'url', url: opts.url! };
   }
 
+  // File type + existence validation (before any rendering)
+  if (input.type === 'file') {
+    const err = validateFileInput('--file', input.path);
+    if (err) {
+      process.stderr.write(formatError(err, fmt) + '\n');
+      process.exit(1);
+    }
+  }
+  if (input.type === 'image') {
+    const err = validateFileInput('--image', input.path);
+    if (err) {
+      process.stderr.write(formatError(err, fmt) + '\n');
+      process.exit(1);
+    }
+  }
+
   // 2.3 Profile resolution — merge preset then apply flag overrides
   let format: OutputFormat = opts.format as OutputFormat;
   let width = parseInt(opts.width, 10);
@@ -92,16 +129,34 @@ async function convertAction(opts: ConvertOpts): Promise<void> {
     const profileParse = ProfileIdSchema.safeParse(opts.profile);
     if (!profileParse.success) {
       process.stderr.write(
-        `Error: Invalid profile "${opts.profile}". Valid profiles: ${Object.keys(PROFILES).join(', ')}\n`,
+        `Error: Invalid profile "${opts.profile}". Valid canonical slugs: ${Object.keys(PROFILES).join(', ')}. Legacy aliases: instagram, twitter, linkedin\n`,
       );
       process.exit(1);
     }
-    const profile = getProfile(profileParse.data as ProfileId);
+    const profile = resolveProfile(profileParse.data as ProfileId);
     // Preset fills in values; flags parsed from CLI override if explicitly different from defaults
     format = opts.format !== 'png' ? (opts.format as OutputFormat) : profile.format;
     width = opts.width !== '1280' ? parseInt(opts.width, 10) : profile.width;
     height = opts.height !== '720' ? parseInt(opts.height, 10) : profile.height;
     quality = opts.quality !== '90' ? parseInt(opts.quality, 10) : profile.quality;
+  }
+
+  // --selector warnings and resolution
+  let selector: string | undefined;
+  if (opts.selector !== undefined) {
+    if (input.type === 'image') {
+      process.stderr.write(`Warning: --selector is ignored for --image inputs\n`);
+    } else {
+      selector = opts.selector;
+      if (process.argv.includes('--width')) {
+        process.stderr.write(`Warning: --width is ignored because --selector takes precedence; output dimensions are determined by the element bounding box\n`);
+        width = 1280;
+      }
+      if (process.argv.includes('--height')) {
+        process.stderr.write(`Warning: --height is ignored because --selector takes precedence; output dimensions are determined by the element bounding box\n`);
+        height = 720;
+      }
+    }
   }
 
   // --duration validation
@@ -122,24 +177,47 @@ async function convertAction(opts: ConvertOpts): Promise<void> {
     ? path.resolve(opts.output)
     : path.resolve(`pixdom-output.${format}`);
 
+  // Build progress reporter
+  const isAnimated = ['gif', 'mp4', 'webm'].includes(format);
+  const isImagePassthrough = input.type === 'image';
+  const hasResize = opts.profile !== undefined ||
+    (isImagePassthrough && (process.argv.includes('--width') || process.argv.includes('--height')));
+  const reporter = createProgressReporter(
+    {
+      hasSelector: !!selector,
+      hasAutoSize: !!(opts.autoSize && !selector),
+      isAnimated,
+      isImagePassthrough,
+      profileName: opts.profile,
+      format: format.toUpperCase(),
+      hasResize,
+    },
+    fmt.noProgress,
+  );
+
   // 3.1 Build RenderOptions and call render()
-  const result = await render({
-    input,
-    format,
-    viewport: { width, height, deviceScaleFactor: 1 },
-    quality,
-    fps,
-    duration,
-    autoSize: opts.autoSize ?? false,
-  });
+  const result = await render(
+    {
+      input,
+      format,
+      viewport: { width, height, deviceScaleFactor: 1 },
+      quality,
+      fps,
+      duration,
+      autoSize: selector ? false : (opts.autoSize ?? false),
+      selector,
+    },
+    { onProgress: reporter.onProgress },
+  );
 
   // 3.3 Error handling
   if (!result.ok) {
-    process.stderr.write(`Error: ${result.error.message} (code: ${result.error.code})\n`);
+    process.stderr.write(formatError(result.error, fmt) + '\n');
     process.exit(1);
   }
 
   // 3.2 Write buffer and print path
   await fs.writeFile(outputPath, result.value);
+  reporter.finish(outputPath);
   process.stdout.write(`${outputPath}\n`);
 }

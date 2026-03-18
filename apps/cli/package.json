@@ -14,7 +14,9 @@
     "@pixdom/core": "workspace:*",
     "@pixdom/profiles": "workspace:*",
     "@pixdom/types": "workspace:*",
-    "commander": "^12.0.0"
+    "commander": "^12.0.0",
+    "omelette": "^0.4.17",
+    "ora": "^8.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

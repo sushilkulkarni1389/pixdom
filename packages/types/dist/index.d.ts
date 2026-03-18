@@ -110,6 +110,7 @@ export declare const RenderOptionsSchema: z.ZodObject<{
     fps: z.ZodOptional<z.ZodNumber>;
     duration: z.ZodOptional<z.ZodNumber>;
     autoSize: z.ZodOptional<z.ZodBoolean>;
+    selector: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     input: {
         type: "html";
@@ -135,6 +136,7 @@ export declare const RenderOptionsSchema: z.ZodObject<{
     fps?: number | undefined;
     duration?: number | undefined;
     autoSize?: boolean | undefined;
+    selector?: string | undefined;
 }, {
     input: {
         type: "html";
@@ -160,30 +162,37 @@ export declare const RenderOptionsSchema: z.ZodObject<{
     fps?: number | undefined;
     duration?: number | undefined;
     autoSize?: boolean | undefined;
+    selector?: string | undefined;
 }>;
 export type RenderOptions = z.infer<typeof RenderOptionsSchema>;
-export declare const ProfileIdSchema: z.ZodEnum<["instagram", "twitter", "linkedin", "square"]>;
+export declare const ProfileIdSchema: z.ZodEnum<["linkedin-background", "linkedin-post", "linkedin-article-cover", "linkedin-profile", "linkedin-single-image-ad", "linkedin-career-background", "twitter-post", "twitter-header", "twitter-ad", "twitter-video", "twitter-ad-landscape", "instagram-post-3-4", "instagram-post-4-5", "instagram-post-square", "instagram-story", "instagram-reel", "instagram-profile", "instagram-story-video", "square", "instagram", "twitter", "linkedin"]>;
 export type ProfileId = z.infer<typeof ProfileIdSchema>;
 export declare const ProfileSchema: z.ZodObject<{
-    id: z.ZodEnum<["instagram", "twitter", "linkedin", "square"]>;
+    id: z.ZodEnum<["linkedin-background", "linkedin-post", "linkedin-article-cover", "linkedin-profile", "linkedin-single-image-ad", "linkedin-career-background", "twitter-post", "twitter-header", "twitter-ad", "twitter-video", "twitter-ad-landscape", "instagram-post-3-4", "instagram-post-4-5", "instagram-post-square", "instagram-story", "instagram-reel", "instagram-profile", "instagram-story-video", "square", "instagram", "twitter", "linkedin"]>;
     width: z.ZodNumber;
     height: z.ZodNumber;
     format: z.ZodEnum<["png", "jpeg", "webp", "gif", "mp4", "webm"]>;
     quality: z.ZodNumber;
+    label: z.ZodString;
+    group: z.ZodString;
     fps: z.ZodOptional<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     width: number;
     height: number;
     format: "png" | "jpeg" | "webp" | "gif" | "mp4" | "webm";
     quality: number;
-    id: "instagram" | "twitter" | "linkedin" | "square";
+    id: "linkedin-background" | "linkedin-post" | "linkedin-article-cover" | "linkedin-profile" | "linkedin-single-image-ad" | "linkedin-career-background" | "twitter-post" | "twitter-header" | "twitter-ad" | "twitter-video" | "twitter-ad-landscape" | "instagram-post-3-4" | "instagram-post-4-5" | "instagram-post-square" | "instagram-story" | "instagram-reel" | "instagram-profile" | "instagram-story-video" | "square" | "instagram" | "twitter" | "linkedin";
+    label: string;
+    group: string;
     fps?: number | undefined;
 }, {
     width: number;
     height: number;
     format: "png" | "jpeg" | "webp" | "gif" | "mp4" | "webm";
     quality: number;
-    id: "instagram" | "twitter" | "linkedin" | "square";
+    id: "linkedin-background" | "linkedin-post" | "linkedin-article-cover" | "linkedin-profile" | "linkedin-single-image-ad" | "linkedin-career-background" | "twitter-post" | "twitter-header" | "twitter-ad" | "twitter-video" | "twitter-ad-landscape" | "instagram-post-3-4" | "instagram-post-4-5" | "instagram-post-square" | "instagram-story" | "instagram-reel" | "instagram-profile" | "instagram-story-video" | "square" | "instagram" | "twitter" | "linkedin";
+    label: string;
+    group: string;
     fps?: number | undefined;
 }>;
 export type Profile = z.infer<typeof ProfileSchema>;

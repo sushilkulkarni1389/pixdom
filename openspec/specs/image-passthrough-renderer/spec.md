@@ -1,19 +1,33 @@
 # image-passthrough-renderer — requirements
 
-### Requirement: Sharp-based image conversion
-`packages/core` SHALL export a `renderImage(options: RenderOptions)` function (or equivalent internal helper) that reads the source image file at `options.input.path` using Sharp and encodes it to the requested `OutputFormat` with the `quality` setting from `RenderOptions`. No Playwright browser SHALL be launched.
+### Requirement: Image passthrough render
+The image passthrough renderer SHALL accept `{ type: 'image', path: string }` input and pass it through Sharp for format conversion. When the input file does not exist at the given path, it SHALL return `{ ok: false, error: { code: 'IMAGE_NOT_FOUND', message: string } }`. When Sharp processing fails for any other reason, it SHALL return `{ ok: false, error: { code: 'SHARP_ERROR', message: string } }` rather than `{ code: 'CAPTURE_FAILED' }`.
 
-#### Scenario: PNG output from JPEG source
-- **WHEN** `render({ input: { type: 'image', path: '/path/to/photo.jpg' }, format: 'png', ... })` is called
-- **THEN** the output buffer is a valid PNG (begins with `\x89PNG`) and no browser process is spawned
+The renderer SHALL also accept an optional `onProgress?: (event: ProgressEvent) => void` parameter. When provided:
+- It SHALL emit `{ type: 'step-start', step: 'read-image' }` before opening the file
+- It SHALL emit `{ type: 'step-done', step: 'read-image' }` after Sharp metadata is available
+- It SHALL emit `{ type: 'step-start', step: 'resize' }` before any resize operation (only if resize is active)
+- It SHALL emit `{ type: 'step-done', step: 'resize' }` after resize completes
 
-#### Scenario: JPEG output respects quality
-- **WHEN** `render({ input: { type: 'image', path: '/path/to/photo.png' }, format: 'jpeg', quality: 60, ... })` is called
-- **THEN** the output is a valid JPEG encoded at quality 60
+#### Scenario: Valid image converts successfully
+- **WHEN** `render({ input: { type: 'image', path: '/valid/photo.jpg' }, format: 'png', ... })` is called
+- **THEN** `render()` returns `{ ok: true, value: <Buffer> }` with the converted PNG data
 
-#### Scenario: WebP output is valid
-- **WHEN** `render({ input: { type: 'image', path: '/path/to/photo.png' }, format: 'webp', quality: 85, ... })` is called
-- **THEN** the output buffer begins with the WebP file signature (`RIFF....WEBP`)
+#### Scenario: Missing image returns IMAGE_NOT_FOUND
+- **WHEN** `render({ input: { type: 'image', path: '/nonexistent/photo.jpg' }, format: 'png', ... })` is called
+- **THEN** `render()` returns `{ ok: false, error: { code: 'IMAGE_NOT_FOUND', message: string } }`
+
+#### Scenario: Sharp processing failure returns SHARP_ERROR
+- **WHEN** `render({ input: { type: 'image', path: '/path/to/corrupt.jpg' }, format: 'png', ... })` is called and Sharp throws
+- **THEN** `render()` returns `{ ok: false, error: { code: 'SHARP_ERROR', message: string } }` (not `CAPTURE_FAILED`)
+
+#### Scenario: read-image events emitted when onProgress provided
+- **WHEN** `renderImage` is called with a non-null `onProgress`
+- **THEN** `onProgress` receives `step-start` then `step-done` for the `'read-image'` step
+
+#### Scenario: resize events emitted only when resize is active
+- **WHEN** `renderImage` is called with custom viewport dimensions and a non-null `onProgress`
+- **THEN** `onProgress` receives `step-start` and `step-done` for the `'resize'` step
 
 ### Requirement: Viewport-based resize
 When `options.viewport.width` or `options.viewport.height` differ from their defaults (1280 and 720 respectively), the image renderer SHALL resize the source image to fit within the specified dimensions using Sharp's `resize` with `fit: 'inside'`, preserving aspect ratio without cropping.

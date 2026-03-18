@@ -1,4 +1,5 @@
-import type { Page } from 'playwright';
+import type { Page, ElementHandle } from 'playwright';
 import type { RenderOptions } from '@pixdom/types';
-export declare function renderStatic(page: Page, options: RenderOptions): Promise<Buffer>;
+import type { OnProgress } from './progress.js';
+export declare function renderStatic(page: Page, options: RenderOptions, element?: ElementHandle, onProgress?: OnProgress): Promise<Buffer>;
 //# sourceMappingURL=static-renderer.d.ts.map

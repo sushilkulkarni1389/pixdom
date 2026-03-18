@@ -1,0 +1,1 @@
+{"version":3,"file":"validate-input.d.ts","sourceRoot":"","sources":["../src/validate-input.ts"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAE,eAAe,EAAE,MAAM,cAAc,CAAC;AAKpD,UAAU,eAAe;IACvB,IAAI,EAAE,eAAe,CAAC;IACtB,OAAO,EAAE,MAAM,CAAC;CACjB;AAkCD;;;;GAIG;AACH,wBAAgB,iBAAiB,CAC/B,IAAI,EAAE,QAAQ,GAAG,SAAS,EAC1B,YAAY,EAAE,MAAM,GACnB,eAAe,GAAG,IAAI,CAuCxB"}
