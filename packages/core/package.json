@@ -17,14 +17,12 @@
   "dependencies": {
     "@pixdom/detector": "workspace:*",
     "@pixdom/types": "workspace:*",
-    "ffmpeg-static": "^5.2.0",
-    "fluent-ffmpeg": "^2.1.3",
-    "playwright": "^1.45.0",
-    "sharp": "^0.33.0"
+    "ffmpeg-static": "5.3.0",
+    "playwright": "1.58.2",
+    "sharp": "0.33.5"
   },
   "devDependencies": {
-    "@types/ffmpeg-static": "^3.0.0",
-    "@types/fluent-ffmpeg": "^2.1.27",
-    "typescript": "^5.8.0"
+    "@types/ffmpeg-static": "3.0.3",
+    "typescript": "5.9.3"
   }
 }

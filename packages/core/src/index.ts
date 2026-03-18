@@ -10,6 +10,7 @@ import { renderStatic } from './static-renderer.js';
 import { renderAnimated } from './animated-renderer.js';
 import { renderImage } from './image-renderer.js';
 import { scanForCycleLengths } from './animation-cycle-hint.js';
+import { installRequestGuard } from './request-guard.js';
 import type { OnProgress } from './progress.js';
 
 export type { RenderError, RenderErrorCode };
@@ -46,12 +47,25 @@ export async function render(
 
   let browser;
 
+  const noSandbox =
+    process.env['PIXDOM_NO_SANDBOX'] === '1' || process.env['PIXDOM_NO_SANDBOX'] === 'true';
+  if (noSandbox) {
+    process.stderr.write(
+      'Warning: PIXDOM_NO_SANDBOX is set — running Chromium without sandbox. Do not use in production.\n',
+    );
+  }
+
   try {
     browser = await chromium.launch({
       args: [
         '--disable-background-timer-throttling',
         '--disable-renderer-backgrounding',
         '--disable-backgrounding-occluded-windows',
+        '--disable-extensions',
+        '--disable-plugins',
+        '--disable-background-networking',
+        '--disable-webrtc',
+        ...(noSandbox ? ['--no-sandbox', '--disable-setuid-sandbox'] : []),
       ],
     });
   } catch (cause) {
@@ -59,12 +73,17 @@ export async function render(
   }
 
   try {
-    const page = await browser.newPage();
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await context.newPage();
 
     await page.setViewportSize({
       width: options.viewport.width,
       height: options.viewport.height,
     });
+
+    page.setDefaultNavigationTimeout(30000);
+
+    await installRequestGuard(page, options);
 
     // deviceScaleFactor requires context-level config; set via emulation
     if (options.viewport.deviceScaleFactor !== 1) {

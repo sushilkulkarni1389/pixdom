@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import sharp from 'sharp';
 import { makeError } from './errors.js';
+// Maximum pixel limit: 16384×16384 = 268,402,689 pixels (decompression bomb protection)
+const MAX_INPUT_PIXELS = 268402689;
 const ANIMATED_FORMATS = new Set(['gif', 'mp4', 'webm']);
 export async function renderImage(options, onProgress) {
     const emit = onProgress ?? (() => { });
@@ -17,7 +19,7 @@ export async function renderImage(options, onProgress) {
     const DEFAULT_WIDTH = 1280;
     const DEFAULT_HEIGHT = 720;
     emit({ type: 'step-start', step: 'read-image' });
-    let image = sharp(options.input.path);
+    let image = sharp(options.input.path, { limitInputPixels: MAX_INPUT_PIXELS });
     emit({ type: 'step-done', step: 'read-image' });
     if (width !== DEFAULT_WIDTH || height !== DEFAULT_HEIGHT) {
         emit({ type: 'step-start', step: 'resize' });

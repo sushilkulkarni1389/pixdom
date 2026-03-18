@@ -1,19 +1,11 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import ffmpeg from 'fluent-ffmpeg';
-import ffmpegPath from 'ffmpeg-static';
-if (ffmpegPath) {
-    ffmpeg.setFfmpegPath(ffmpegPath);
-}
-function assertFfmpegAvailable() {
-    if (!ffmpegPath) {
-        throw new Error('FFmpeg binary not available on this platform (ffmpeg-static returned null)');
-    }
-}
+import { getFfmpegPath, spawnFfmpeg } from './ffmpeg-spawn.js';
 /**
- * Drives a rAF loop via page.evaluate for `cycleMs` duration, taking a
+ * Drives a rAF loop via page.clock for `cycleMs` duration, taking a
  * Playwright screenshot after each frame. Returns sorted frame file paths.
  * When `element` is provided, captures each frame via element.screenshot()
  * instead of page.screenshot(). The element's bounding box is computed once
@@ -50,67 +42,50 @@ export async function captureFrames(page, cycleMs, fps, outDir, element, onProgr
     emit({ type: 'step-done', step: 'capture-frames' });
     return paths;
 }
-function ffmpegEncode(inputPattern, fps, outputPath, extraArgs, onProgress) {
-    return new Promise((resolve, reject) => {
-        const cmd = ffmpeg()
-            .input(inputPattern)
-            .inputOptions([`-framerate ${fps}`])
-            .outputOptions(extraArgs)
-            .on('error', reject)
-            .on('end', () => resolve());
-        if (onProgress) {
-            cmd.on('progress', (p) => {
-                if (p.percent != null) {
-                    onProgress({ type: 'encode-progress', pct: Math.min(100, Math.round(p.percent)) });
-                }
-            });
-        }
-        cmd.save(outputPath);
-    });
-}
 export async function encodeGif(frames, fps, _cycleMs, onProgress) {
-    assertFfmpegAvailable();
+    getFfmpegPath(); // throws if unavailable
     const pattern = frames[0].replace(/frame-\d+\.png$/, 'frame-%06d.png');
     const palettePath = frames[0].replace(/frame-\d+\.png$/, 'palette.png');
     const outPath = frames[0].replace(/frame-\d+\.png$/, 'out.gif');
     // Pass 1: generate a globally-optimal palette from all frames
-    await ffmpegEncode(pattern, fps, palettePath, ['-vf', 'palettegen']);
+    await spawnFfmpeg(['-framerate', String(fps), '-i', pattern, '-vf', 'palettegen', '-y', palettePath]);
     // Pass 2: encode GIF using the palette derived from the full sequence
-    await new Promise((resolve, reject) => {
-        const cmd = ffmpeg()
-            .input(pattern)
-            .inputOptions([`-framerate ${fps}`])
-            .input(palettePath)
-            .outputOptions(['-loop', '0', '-filter_complex', '[0:v][1:v]paletteuse'])
-            .on('error', reject)
-            .on('end', () => resolve());
-        if (onProgress) {
-            cmd.on('progress', (p) => {
-                if (p.percent != null) {
-                    onProgress({ type: 'encode-progress', pct: Math.min(100, Math.round(p.percent)) });
-                }
-            });
-        }
-        cmd.save(outPath);
-    });
+    await spawnFfmpeg([
+        '-framerate', String(fps), '-i', pattern,
+        '-i', palettePath,
+        '-loop', '0',
+        '-filter_complex', '[0:v][1:v]paletteuse',
+        '-y', outPath,
+    ], frames.length, onProgress);
     const buf = await fs.readFile(outPath);
     await fs.unlink(outPath);
     return buf;
 }
 export async function encodeMp4(frames, fps, onProgress) {
-    assertFfmpegAvailable();
-    const outPath = frames[0].replace(/frame-\d+\.png$/, 'out.mp4');
+    getFfmpegPath();
     const pattern = frames[0].replace(/frame-\d+\.png$/, 'frame-%06d.png');
-    await ffmpegEncode(pattern, fps, outPath, ['-pix_fmt', 'yuv420p', '-movflags', '+faststart'], onProgress);
+    const outPath = frames[0].replace(/frame-\d+\.png$/, 'out.mp4');
+    await spawnFfmpeg([
+        '-framerate', String(fps), '-i', pattern,
+        '-pix_fmt', 'yuv420p',
+        '-movflags', '+faststart',
+        '-y', outPath,
+    ], frames.length, onProgress);
     const buf = await fs.readFile(outPath);
     await fs.unlink(outPath);
     return buf;
 }
 export async function encodeWebm(frames, fps, onProgress) {
-    assertFfmpegAvailable();
-    const outPath = frames[0].replace(/frame-\d+\.png$/, 'out.webm');
+    getFfmpegPath();
     const pattern = frames[0].replace(/frame-\d+\.png$/, 'frame-%06d.png');
-    await ffmpegEncode(pattern, fps, outPath, ['-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '33'], onProgress);
+    const outPath = frames[0].replace(/frame-\d+\.png$/, 'out.webm');
+    await spawnFfmpeg([
+        '-framerate', String(fps), '-i', pattern,
+        '-c:v', 'libvpx-vp9',
+        '-b:v', '0',
+        '-crf', '33',
+        '-y', outPath,
+    ], frames.length, onProgress);
     const buf = await fs.readFile(outPath);
     await fs.unlink(outPath);
     return buf;
@@ -119,6 +94,21 @@ export async function renderAnimated(page, options, cycleMs, element, onProgress
     const emit = onProgress ?? (() => { });
     const tmpDir = path.join(os.tmpdir(), `pixdom-${randomUUID()}`);
     await fs.mkdir(tmpDir, { recursive: true });
+    // Restrict temp dir access to owner only (10.1)
+    await fs.chmod(tmpDir, 0o700);
+    // Signal handlers to clean up temp files on early exit (10.2)
+    const cleanup = () => {
+        try {
+            fsSync.rmSync(tmpDir, { recursive: true, force: true });
+        }
+        catch {
+            // ignore cleanup errors during signal handling
+        }
+    };
+    const sigtermHandler = () => { cleanup(); process.kill(process.pid, 'SIGTERM'); };
+    const sigintHandler = () => { cleanup(); process.kill(process.pid, 'SIGINT'); };
+    process.once('SIGTERM', sigtermHandler);
+    process.once('SIGINT', sigintHandler);
     try {
         const fps = options.fps ?? 30;
         const frames = await captureFrames(page, cycleMs, fps, tmpDir, element, onProgress);
@@ -144,6 +134,9 @@ export async function renderAnimated(page, options, cycleMs, element, onProgress
         return buf;
     }
     finally {
+        // Remove signal handlers to avoid accumulation (10.3)
+        process.off('SIGTERM', sigtermHandler);
+        process.off('SIGINT', sigintHandler);
         await fs.rm(tmpDir, { recursive: true, force: true });
     }
 }

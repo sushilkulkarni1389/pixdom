@@ -7,14 +7,15 @@
     "lint:md": "markdownlint-cli2 'openspec/**/*.md' '.claude/**/*.md'",
     "lint:md:fix": "markdownlint-cli2 --fix 'openspec/**/*.md' '.claude/**/*.md'",
     "lint:md:specs": "markdownlint-cli2 'openspec/specs/**/*.md'",
-    "lint:md:changes": "markdownlint-cli2 'openspec/changes/**/*.md' '!openspec/changes/archive/**'"
+    "lint:md:changes": "markdownlint-cli2 'openspec/changes/**/*.md' '!openspec/changes/archive/**'",
+    "audit": "pnpm audit --audit-level=high"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
-    "markdownlint-cli2": "^0.21.0",
-    "typescript": "^5.9.3"
+    "@types/node": "25.5.0",
+    "markdownlint-cli2": "0.21.0",
+    "typescript": "5.9.3"
   },
   "dependencies": {
-    "ora": "^8.2.0"
+    "ora": "8.2.0"
   }
 }

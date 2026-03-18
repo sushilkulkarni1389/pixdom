@@ -1,25 +1,15 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Page, ElementHandle } from 'playwright';
 import type { RenderOptions } from '@pixdom/types';
-import ffmpeg from 'fluent-ffmpeg';
-import ffmpegPath from 'ffmpeg-static';
+import { getFfmpegPath, spawnFfmpeg } from './ffmpeg-spawn.js';
 import type { OnProgress } from './progress.js';
 
-if (ffmpegPath) {
-  ffmpeg.setFfmpegPath(ffmpegPath);
-}
-
-function assertFfmpegAvailable(): void {
-  if (!ffmpegPath) {
-    throw new Error('FFmpeg binary not available on this platform (ffmpeg-static returned null)');
-  }
-}
-
 /**
- * Drives a rAF loop via page.evaluate for `cycleMs` duration, taking a
+ * Drives a rAF loop via page.clock for `cycleMs` duration, taking a
  * Playwright screenshot after each frame. Returns sorted frame file paths.
  * When `element` is provided, captures each frame via element.screenshot()
  * instead of page.screenshot(). The element's bounding box is computed once
@@ -66,84 +56,86 @@ export async function captureFrames(
   return paths;
 }
 
-function ffmpegEncode(
-  inputPattern: string,
-  fps: number,
-  outputPath: string,
-  extraArgs: string[],
-  onProgress?: OnProgress,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const cmd = ffmpeg()
-      .input(inputPattern)
-      .inputOptions([`-framerate ${fps}`])
-      .outputOptions(extraArgs)
-      .on('error', reject)
-      .on('end', () => resolve());
-    if (onProgress) {
-      cmd.on('progress', (p: { percent?: number }) => {
-        if (p.percent != null) {
-          onProgress({ type: 'encode-progress', pct: Math.min(100, Math.round(p.percent)) });
-        }
-      });
-    }
-    cmd.save(outputPath);
-  });
-}
-
 export async function encodeGif(
   frames: string[],
   fps: number,
   _cycleMs: number,
   onProgress?: OnProgress,
 ): Promise<Buffer> {
-  assertFfmpegAvailable();
+  getFfmpegPath(); // throws if unavailable
   const pattern = frames[0]!.replace(/frame-\d+\.png$/, 'frame-%06d.png');
   const palettePath = frames[0]!.replace(/frame-\d+\.png$/, 'palette.png');
   const outPath = frames[0]!.replace(/frame-\d+\.png$/, 'out.gif');
 
   // Pass 1: generate a globally-optimal palette from all frames
-  await ffmpegEncode(pattern, fps, palettePath, ['-vf', 'palettegen']);
+  await spawnFfmpeg(
+    ['-framerate', String(fps), '-i', pattern, '-vf', 'palettegen', '-y', palettePath],
+  );
 
   // Pass 2: encode GIF using the palette derived from the full sequence
-  await new Promise<void>((resolve, reject) => {
-    const cmd = ffmpeg()
-      .input(pattern)
-      .inputOptions([`-framerate ${fps}`])
-      .input(palettePath)
-      .outputOptions(['-loop', '0', '-filter_complex', '[0:v][1:v]paletteuse'])
-      .on('error', reject)
-      .on('end', () => resolve());
-    if (onProgress) {
-      cmd.on('progress', (p: { percent?: number }) => {
-        if (p.percent != null) {
-          onProgress({ type: 'encode-progress', pct: Math.min(100, Math.round(p.percent)) });
-        }
-      });
-    }
-    cmd.save(outPath);
-  });
+  await spawnFfmpeg(
+    [
+      '-framerate', String(fps), '-i', pattern,
+      '-i', palettePath,
+      '-loop', '0',
+      '-filter_complex', '[0:v][1:v]paletteuse',
+      '-y', outPath,
+    ],
+    frames.length,
+    onProgress,
+  );
 
   const buf = await fs.readFile(outPath);
   await fs.unlink(outPath);
   return buf;
 }
 
-export async function encodeMp4(frames: string[], fps: number, onProgress?: OnProgress): Promise<Buffer> {
-  assertFfmpegAvailable();
+export async function encodeMp4(
+  frames: string[],
+  fps: number,
+  onProgress?: OnProgress,
+): Promise<Buffer> {
+  getFfmpegPath();
+  const pattern = frames[0]!.replace(/frame-\d+\.png$/, 'frame-%06d.png');
   const outPath = frames[0]!.replace(/frame-\d+\.png$/, 'out.mp4');
-  const pattern = frames[0]!.replace(/frame-\d+\.png$/, 'frame-%06d.png');
-  await ffmpegEncode(pattern, fps, outPath, ['-pix_fmt', 'yuv420p', '-movflags', '+faststart'], onProgress);
+
+  await spawnFfmpeg(
+    [
+      '-framerate', String(fps), '-i', pattern,
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
+      '-y', outPath,
+    ],
+    frames.length,
+    onProgress,
+  );
+
   const buf = await fs.readFile(outPath);
   await fs.unlink(outPath);
   return buf;
 }
 
-export async function encodeWebm(frames: string[], fps: number, onProgress?: OnProgress): Promise<Buffer> {
-  assertFfmpegAvailable();
-  const outPath = frames[0]!.replace(/frame-\d+\.png$/, 'out.webm');
+export async function encodeWebm(
+  frames: string[],
+  fps: number,
+  onProgress?: OnProgress,
+): Promise<Buffer> {
+  getFfmpegPath();
   const pattern = frames[0]!.replace(/frame-\d+\.png$/, 'frame-%06d.png');
-  await ffmpegEncode(pattern, fps, outPath, ['-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '33'], onProgress);
+  const outPath = frames[0]!.replace(/frame-\d+\.png$/, 'out.webm');
+
+  await spawnFfmpeg(
+    [
+      '-framerate', String(fps), '-i', pattern,
+      '-c:v', 'libvpx-vp9',
+      '-b:v', '0',
+      '-crf', '33',
+      '-y', outPath,
+    ],
+    frames.length,
+    onProgress,
+  );
+
   const buf = await fs.readFile(outPath);
   await fs.unlink(outPath);
   return buf;
@@ -159,6 +151,22 @@ export async function renderAnimated(
   const emit = onProgress ?? (() => {});
   const tmpDir = path.join(os.tmpdir(), `pixdom-${randomUUID()}`);
   await fs.mkdir(tmpDir, { recursive: true });
+
+  // Restrict temp dir access to owner only (10.1)
+  await fs.chmod(tmpDir, 0o700);
+
+  // Signal handlers to clean up temp files on early exit (10.2)
+  const cleanup = (): void => {
+    try {
+      fsSync.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors during signal handling
+    }
+  };
+  const sigtermHandler = (): void => { cleanup(); process.kill(process.pid, 'SIGTERM'); };
+  const sigintHandler = (): void => { cleanup(); process.kill(process.pid, 'SIGINT'); };
+  process.once('SIGTERM', sigtermHandler);
+  process.once('SIGINT', sigintHandler);
 
   try {
     const fps = options.fps ?? 30;
@@ -186,6 +194,9 @@ export async function renderAnimated(
     emit({ type: 'step-done', step: 'write-output' });
     return buf;
   } finally {
+    // Remove signal handlers to avoid accumulation (10.3)
+    process.off('SIGTERM', sigtermHandler);
+    process.off('SIGINT', sigintHandler);
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 }

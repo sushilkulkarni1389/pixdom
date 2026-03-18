@@ -2,7 +2,7 @@ import type { Page, ElementHandle } from 'playwright';
 import type { RenderOptions } from '@pixdom/types';
 import type { OnProgress } from './progress.js';
 /**
- * Drives a rAF loop via page.evaluate for `cycleMs` duration, taking a
+ * Drives a rAF loop via page.clock for `cycleMs` duration, taking a
  * Playwright screenshot after each frame. Returns sorted frame file paths.
  * When `element` is provided, captures each frame via element.screenshot()
  * instead of page.screenshot(). The element's bounding box is computed once

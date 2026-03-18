@@ -96,8 +96,8 @@ server.registerTool(
         .optional()
         .default('png')
         .describe('Output format'),
-      width: z.number().optional().default(1280).describe('Viewport width'),
-      height: z.number().optional().default(720).describe('Viewport height'),
+      width: z.number().int().min(1).max(7680).optional().default(1280).describe('Viewport width (1–7680)'),
+      height: z.number().int().min(1).max(4320).optional().default(720).describe('Viewport height (1–4320)'),
       quality: z.number().min(0).max(100).optional().default(90).describe('Output quality (0-100)'),
       output: z.string().optional().describe('Custom output file path'),
     },
@@ -157,8 +157,8 @@ server.registerTool(
         .optional()
         .default('png')
         .describe('Output format'),
-      width: z.number().optional().default(1280).describe('Viewport width'),
-      height: z.number().optional().default(720).describe('Viewport height'),
+      width: z.number().int().min(1).max(7680).optional().default(1280).describe('Viewport width (1–7680)'),
+      height: z.number().int().min(1).max(4320).optional().default(720).describe('Viewport height (1–4320)'),
       quality: z.number().min(0).max(100).optional().default(90).describe('Output quality (0-100)'),
       model: z
         .string()

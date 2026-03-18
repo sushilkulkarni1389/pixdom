@@ -1,0 +1,1 @@
+{"version":3,"file":"ffmpeg-spawn.d.ts","sourceRoot":"","sources":["../src/ffmpeg-spawn.ts"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,eAAe,CAAC;AAEhD;;GAEG;AACH,wBAAgB,aAAa,IAAI,MAAM,CAKtC;AAED;;;;GAIG;AACH,wBAAgB,WAAW,CACzB,IAAI,EAAE,MAAM,EAAE,EACd,WAAW,CAAC,EAAE,MAAM,EACpB,UAAU,CAAC,EAAE,UAAU,GACtB,OAAO,CAAC,IAAI,CAAC,CAmCf"}

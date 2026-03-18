@@ -7,16 +7,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.36.3",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@anthropic-ai/sdk": "0.36.3",
+    "@modelcontextprotocol/sdk": "1.27.1",
     "@pixdom/core": "workspace:*",
     "@pixdom/profiles": "workspace:*",
     "@pixdom/types": "workspace:*",
-    "zod": "^3.25.76"
+    "zod": "3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
-    "tsx": "^4.21.0",
-    "typescript": "^5.8.0"
+    "@types/node": "25.5.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
   }
 }

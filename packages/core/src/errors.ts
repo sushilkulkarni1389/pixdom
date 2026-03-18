@@ -8,7 +8,13 @@ export type RenderErrorCode =
   | 'INVALID_FILE_TYPE'
   | 'FILE_NOT_FOUND'
   | 'IMAGE_NOT_FOUND'
-  | 'SHARP_ERROR';
+  | 'SHARP_ERROR'
+  | 'INVALID_URL_PROTOCOL'
+  | 'INVALID_URL_HOST'
+  | 'INVALID_OUTPUT_PATH'
+  | 'INVALID_FPS'
+  | 'INVALID_DURATION'
+  | 'RESOURCE_LIMIT_EXCEEDED';
 
 export interface RenderError {
   code: RenderErrorCode;

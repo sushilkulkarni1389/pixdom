@@ -23,7 +23,7 @@ The server SHALL register a tool named `convert_html_to_asset` with an input sch
 - **THEN** the tool returns a result with `isError: true` and a validation error message
 
 ### Requirement: convert_html_to_asset handler
-The `convert_html_to_asset` handler SHALL validate its input with Zod, resolve any `profile` to a `Profile` from `@pixdom/profiles` applying individual overrides, call `render()` from `@pixdom/core`, write the resulting buffer to `output/<uuid>.<format>`, and return a tool result containing the absolute output path and metadata.
+The `convert_html_to_asset` handler SHALL validate its input with Zod, resolve any `profile` to a `Profile` from `@pixdom/profiles` applying individual overrides, call `render()` from `@pixdom/core`, write the resulting buffer to `output/<uuid>.<format>`, and return a tool result containing the absolute output path and metadata. Input validation SHALL apply the same rules as the CLI `convert` command: resource limit checks for `width`, `height`, `fps`, and `duration` (if accepted); output path validation for the `output` parameter; and extension validation for any file parameters. Validation errors SHALL be returned as `{ isError: true }` tool results without reaching `render()`.
 
 #### Scenario: Simple HTML produces output file
 - **WHEN** `convert_html_to_asset({ html: '<h1>Hello</h1>' })` is called
@@ -36,6 +36,10 @@ The `convert_html_to_asset` handler SHALL validate its input with Zod, resolve a
 #### Scenario: render() error returned as MCP error
 - **WHEN** `render()` returns `Result.err` (e.g., page load failure)
 - **THEN** the tool returns `{ isError: true, content: [{ type: 'text', text: '<error message>' }] }` and does not throw
+
+#### Scenario: Oversized width rejected before render
+- **WHEN** `convert_html_to_asset({ html: 'x', width: 8000 })` is called
+- **THEN** the tool returns `{ isError: true }` with `RESOURCE_LIMIT_EXCEEDED` in the message and `render()` is never called
 
 ### Requirement: Error containment for convert_html_to_asset
 The `convert_html_to_asset` handler SHALL catch all exceptions and return a `CallToolResult` with `isError: true`. It SHALL never allow an unhandled exception to propagate to the MCP server transport.

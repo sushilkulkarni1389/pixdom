@@ -5,14 +5,14 @@ The animated renderer SHALL accept an optional `ElementHandle` parameter alongsi
 
 The animated renderer SHALL also accept an optional `onProgress?: (event: ProgressEvent) => void` parameter. When provided:
 - It SHALL emit `{ type: 'step-start', step: 'capture-frames' }` before the frame loop begins
-- It SHALL emit `{ type: 'frame-progress', current: i+1, total: frameCount }` after each frame is captured (throttled to at most 10 updates per second to avoid excessive terminal redraws)
-- It SHALL emit `{ type: 'step-done', step: 'capture-frames' }` after the loop completes (outside and after the throttled `frame-progress` events)
+- It SHALL emit `{ type: 'frame-progress', current: i+1, total: frameCount }` after each frame is captured (throttled to at most 10 updates per second)
+- It SHALL emit `{ type: 'step-done', step: 'capture-frames' }` after the loop completes
 - It SHALL emit `{ type: 'encode-format', format: options.format }` before encoding begins
-- It SHALL emit `{ type: 'encode-progress', pct: number }` events when fluent-ffmpeg emits progress data during encoding — `pct` SHALL be clamped to a maximum of 100 via `Math.min(100, Math.round(percent))` to prevent values above 100% when FFmpeg reports progress exceeding 100 during GIF two-pass palette generation
+- It SHALL emit `{ type: 'encode-progress', pct: number }` events derived from FFmpeg stderr progress parsing — `pct` SHALL be clamped to a maximum of 100
+- It SHALL emit `{ type: 'encode-done', format: string }` (uppercase format) after encoding completes
+- It SHALL emit `{ type: 'step-start', step: 'write-output' }` and `{ type: 'step-done', step: 'write-output' }` after `encode-done`
 
-After encoding completes, `renderAnimated()` SHALL emit `{ type: 'encode-done', format: string }` (uppercase format, e.g. `"GIF"`) before any subsequent step events. Following `encode-done`, it SHALL emit `{ type: 'step-start', step: 'write-output' }` and `{ type: 'step-done', step: 'write-output' }` to signal the final buffer handoff step.
-
-This allows consumers to eagerly start a spinner at loop start rather than waiting for the first `frame-progress` event.
+FFmpeg SHALL be invoked via `child_process.spawn()` with explicit argument arrays. `fluent-ffmpeg` SHALL NOT be used.
 
 #### Scenario: Frame count proportional to cycle length
 - **WHEN** the animated renderer captures a 1000ms cycle at 30fps
@@ -20,7 +20,7 @@ This allows consumers to eagerly start a spinner at loop start rather than waiti
 
 #### Scenario: Frames are at exact time positions
 - **WHEN** a CSS animation with a known 1000ms cycle is captured at 30fps
-- **THEN** frame `i` is captured at synthetic time `i × 33ms` (±1ms) — each frame shows a distinct, evenly-spaced animation state
+- **THEN** frame `i` is captured at synthetic time `i × 33ms` (±1ms)
 
 #### Scenario: Capture completes without real-time waiting
 - **WHEN** a 2000ms animation cycle is captured at 30fps
@@ -55,19 +55,19 @@ This allows consumers to eagerly start a spinner at loop start rather than waiti
 - **THEN** `onProgress` receives one or more `encode-progress` events with `pct` between 0 and 100
 
 #### Scenario: encode-progress pct never exceeds 100
-- **WHEN** FFmpeg emits a progress event with a percent value above 100 (common in GIF two-pass encoding)
+- **WHEN** FFmpeg stderr indicates a frame count exceeding the expected total
 - **THEN** the `encode-progress` event received by `onProgress` has `pct` clamped to `100`
 
-#### Scenario: encode-done emitted after encoding
-- **WHEN** `renderAnimated` completes FFmpeg encoding for any format
-- **THEN** `onProgress` receives `{ type: 'encode-done', format: 'GIF' | 'MP4' | 'WEBM' }` before the `write-output` step events
+#### Scenario: encode-done emitted after FFmpeg completes
+- **WHEN** FFmpeg encoding completes successfully
+- **THEN** `onProgress` receives `{ type: 'encode-done', format: 'GIF' | 'MP4' | 'WEBM' }` before any `write-output` events
 
-#### Scenario: write-output step emitted after encode-done
-- **WHEN** `renderAnimated` completes encoding
-- **THEN** `onProgress` receives `step-start` then `step-done` for `'write-output'` after `encode-done`
+#### Scenario: No fluent-ffmpeg import in animated renderer
+- **WHEN** `packages/core/src/animated-renderer.ts` is statically analysed
+- **THEN** no import from `fluent-ffmpeg` is present
 
 ### Requirement: FFmpeg GIF encoding
-The animated renderer SHALL encode the captured PNG frame sequence into a GIF using a two-pass FFmpeg process. **Pass 1** SHALL run FFmpeg on the frame sequence with the `palettegen` filter to produce a `palette.png` file in the temp directory — this generates a globally-optimal 256-color palette from the entire frame sequence. **Pass 2** SHALL run FFmpeg with the frame sequence and `palette.png` as separate inputs, using `-filter_complex "[0:v][1:v]paletteuse"` to produce the final GIF. The output GIF SHALL loop indefinitely (`-loop 0`). The intermediate `palette.png` SHALL be written to the same temp directory as the frames and cleaned up with them. The frame rate SHALL default to 30fps unless `options.fps` is set.
+The animated renderer SHALL encode the captured PNG frame sequence into a GIF using a two-pass FFmpeg process. **Pass 1** SHALL run FFmpeg on the frame sequence with the `palettegen` filter to produce a `palette.png` file in the temp directory — this generates a globally-optimal 256-color palette from the entire frame sequence. **Pass 2** SHALL run FFmpeg with the frame sequence and `palette.png` as separate inputs, using `-filter_complex "[0:v][1:v]paletteuse"` to produce the final GIF. The output GIF SHALL loop indefinitely (`-loop 0`). The intermediate `palette.png` SHALL be written to the same temp directory as the frames and cleaned up with them. The frame rate SHALL default to 30fps unless `options.fps` is set. Both passes SHALL use explicit `child_process.spawn()` argument arrays.
 
 #### Scenario: GIF buffer is valid
 - **WHEN** `render({ format: 'gif', ... })` completes successfully
@@ -86,7 +86,7 @@ The animated renderer SHALL encode the captured PNG frame sequence into a GIF us
 - **THEN** `palette.png` is removed along with all frame files in the temp directory
 
 ### Requirement: FFmpeg MP4 encoding
-The animated renderer SHALL encode the PNG frame sequence into an H.264 MP4 using `fluent-ffmpeg` with `-pix_fmt yuv420p` for broad compatibility. The frame rate SHALL default to 30fps unless `options.fps` is set.
+The animated renderer SHALL encode the PNG frame sequence into an H.264 MP4 using `child_process.spawn()` with `-pix_fmt yuv420p` for broad compatibility. The frame rate SHALL default to 30fps unless `options.fps` is set.
 
 #### Scenario: MP4 buffer is valid
 - **WHEN** `render({ format: 'mp4', ... })` completes successfully
@@ -97,7 +97,7 @@ The animated renderer SHALL encode the PNG frame sequence into an H.264 MP4 usin
 - **THEN** the encoded MP4 has a frame rate of 30fps
 
 ### Requirement: FFmpeg WebM encoding
-The animated renderer SHALL encode the PNG frame sequence into a VP9 WebM using `fluent-ffmpeg`. The frame rate SHALL default to 30fps unless `options.fps` is set.
+The animated renderer SHALL encode the PNG frame sequence into a VP9 WebM using `child_process.spawn()`. The frame rate SHALL default to 30fps unless `options.fps` is set.
 
 #### Scenario: WebM buffer is valid
 - **WHEN** `render({ format: 'webm', ... })` completes successfully
