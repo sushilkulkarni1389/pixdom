@@ -2,3 +2,9 @@
 .claude/SESSION-DIFF-*.md
 
 node_modules/
+
+# Build output — never commit compiled files
+dist/
+apps/*/dist/
+packages/*/dist/
+*.tgz

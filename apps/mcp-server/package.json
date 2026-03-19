@@ -16,6 +16,9 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@pixdom/core": "workspace:*",
+    "@pixdom/profiles": "workspace:*",
+    "@pixdom/types": "workspace:*",
     "@types/node": "25.5.0",
     "esbuild": "0.25.0",
     "tsx": "4.21.0",

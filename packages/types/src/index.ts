@@ -34,6 +34,7 @@ export const RenderOptionsSchema = z.object({
   selector: z.string().optional(),
   allowLocal: z.boolean().optional(),
   auto: z.boolean().optional(),
+  profileViewport: z.boolean().optional(),
 });
 export type RenderOptions = z.infer<typeof RenderOptionsSchema>;
 

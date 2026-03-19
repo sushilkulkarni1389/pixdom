@@ -120,7 +120,9 @@ export async function render(
           autoElementAmbiguous = elResult.ambiguous;
           autoElementWidth = elResult.width;
           autoElementHeight = elResult.height;
-          if (elResult.selector) {
+          // When profileViewport is set, don't override autoEffectiveSelector for capture —
+          // the detected selector is used only for timing detection below.
+          if (elResult.selector && !options.profileViewport) {
             autoEffectiveSelector = elResult.selector;
           }
         }
@@ -129,7 +131,9 @@ export async function render(
       }
       emit({ type: 'step-done', step: 'analyse-page' });
 
-      // Step 2: auto-duration and auto-fps detection
+      // Step 2: auto-duration and auto-fps detection.
+      // Use the detected element selector for timing even when profileViewport suppresses capture.
+      const timingSelector = autoElement ?? autoEffectiveSelector;
       emit({ type: 'step-start', step: 'detect-animations' });
       let autoDuration: number | null = null;
       let autoDurationStrategy: 'css-lcm' | 'css-transition' | 'source-pattern' | null = null;
@@ -137,7 +141,7 @@ export async function render(
       let autoLcmMs: number | undefined;
 
       if (!options.duration) {
-        const durResult = await autoDetectDuration(page, autoEffectiveSelector ?? undefined);
+        const durResult = await autoDetectDuration(page, timingSelector ?? undefined);
         if (durResult !== null) {
           autoDuration = durResult.durationMs;
           autoDurationStrategy = durResult.strategy;
@@ -153,7 +157,7 @@ export async function render(
       if (!options.fps) {
         autoEffectiveFps = await autoDetectFps(
           page,
-          autoEffectiveSelector ?? undefined,
+          timingSelector ?? undefined,
           autoEffectiveDuration ?? undefined,
         );
       }

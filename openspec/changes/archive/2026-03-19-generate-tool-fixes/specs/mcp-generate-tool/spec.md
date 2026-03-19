@@ -1,15 +1,4 @@
-## Requirements
-
-### Requirement: generate_and_convert tool definition
-The server SHALL register a tool named `generate_and_convert` with an input schema accepting: `prompt` (string, required — plain-text description of the desired visual), `profile` (string, optional), `format` (string, optional, default `png`), `width` (number, optional, default 1280), `height` (number, optional, default 720), `quality` (number, optional, default 90), `model` (string, optional, default `claude-haiku-4-5-20251001`), `output` (string, optional — custom output file path).
-
-#### Scenario: Tool appears in tools/list
-- **WHEN** an MCP `tools/list` request is sent
-- **THEN** `generate_and_convert` is listed with its parameter schema
-
-#### Scenario: Required prompt param enforced
-- **WHEN** `generate_and_convert` is called without the `prompt` parameter
-- **THEN** the tool returns a result with `isError: true` and a validation error message
+## MODIFIED Requirements
 
 ### Requirement: HTML generation via Claude API
 The `generate_and_convert` handler SHALL call the Anthropic Claude API using `@anthropic-ai/sdk` with the system prompt loaded from `.claude/context/claude-integration.md` (falling back to a hardcoded minimal prompt if the file is absent). The user message SHALL be the `prompt` parameter value. The raw API response text SHALL be passed through `robustHtmlExtract()` before use. If the extracted HTML is fewer than 50 characters, the handler SHALL return `{ isError: true }` with code `GENERATE_EMPTY_HTML` and SHALL NOT call `render()`.
@@ -35,7 +24,7 @@ The `generate_and_convert` handler SHALL call the Anthropic Claude API using `@a
 - **THEN** the tool returns `{ isError: true }` with `error.code === 'GENERATE_EMPTY_HTML'` and `render()` is not called
 
 ### Requirement: generate_and_convert render pipeline
-After extracting HTML from the Claude API response, the `generate_and_convert` handler SHALL pass it to `render()` from `@pixdom/core` using the same profile/format/viewport resolution logic as `convert_html_to_asset`. When the `profile` parameter is set, the handler SHALL also pass `profileViewport: true` in the `RenderOptions` so that auto element detection does not override the profile viewport dimensions. The output buffer SHALL be written to `output/<uuid>.<format>` and the absolute path returned in the tool result. Input validation SHALL apply the same resource limit and output path checks as `convert_html_to_asset` before any Claude API call is made.
+After extracting HTML from the Claude API response, the `generate_and_convert` handler SHALL pass it to `render()` from `@pixdom/core` using the same profile/format/viewport resolution logic as `convert_html_to_asset`. When the `profile` parameter is set, the handler SHALL also pass `profileViewport: true` in the `RenderOptions` so that auto element detection does not override the profile viewport dimensions. The output buffer SHALL be written to `output/<uuid>.<format>` and the absolute path returned in the tool result.
 
 #### Scenario: End-to-end produces output file
 - **WHEN** `generate_and_convert({ prompt: 'Simple red square' })` is called with a valid API key
@@ -49,21 +38,6 @@ After extracting HTML from the Claude API response, the `generate_and_convert` h
 - **WHEN** HTML generation succeeds but `render()` returns `Result.err`
 - **THEN** the tool returns `{ isError: true, ... }` describing the render failure
 
-#### Scenario: Oversized width rejected before Claude API call
-- **WHEN** `generate_and_convert({ prompt: 'x', width: 8000 })` is called
-- **THEN** the tool returns `{ isError: true }` with `RESOURCE_LIMIT_EXCEEDED` and the Claude API is never called
-
-#### Scenario: ANTHROPIC_API_KEY not leaked in error output
-- **WHEN** any error is returned from `generate_and_convert`
-- **THEN** the tool result content does not contain the value of `ANTHROPIC_API_KEY`
-
 #### Scenario: profileViewport not set when no profile given
 - **WHEN** `generate_and_convert({ prompt: '...', auto: true })` is called without a profile
 - **THEN** `render()` is called WITHOUT `profileViewport: true` and auto element detection drives capture normally
-
-### Requirement: Error containment for generate_and_convert
-The `generate_and_convert` handler SHALL catch all exceptions (including Anthropic API errors, network failures, and render errors) and return a `CallToolResult` with `isError: true`. It SHALL never allow an unhandled exception to propagate to the MCP server transport.
-
-#### Scenario: API error caught
-- **WHEN** the Anthropic API returns an error response
-- **THEN** the tool returns `{ isError: true, content: [{ type: 'text', text: '<error>' }] }` and the server remains alive
