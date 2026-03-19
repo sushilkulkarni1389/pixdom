@@ -17,6 +17,18 @@ export type ProgressEvent = {
 } | {
     type: 'encode-done';
     format: string;
+} | {
+    type: 'auto-detected';
+    element: string | null;
+    elementAmbiguous: boolean;
+    elementWidth: number;
+    elementHeight: number;
+    duration: number | null;
+    durationStrategy: 'css-lcm' | 'css-transition' | 'source-pattern' | null;
+    lcmExceeded: boolean;
+    lcmMs?: number;
+    fps: number;
+    frames: number;
 };
 export type OnProgress = (event: ProgressEvent) => void;
 //# sourceMappingURL=progress.d.ts.map

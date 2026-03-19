@@ -6,20 +6,24 @@
     "pixdom": "./bin/pixdom.js"
   },
   "scripts": {
-    "postinstall": "node ../../node_modules/playwright/cli.js install chromium",
+    "postinstall": "npx playwright install chromium",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --project tsconfig.json"
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=dist/index.js --external:playwright --external:sharp --external:ora --external:commander --external:omelette --external:ffmpeg-static"
   },
   "dependencies": {
+    "commander": "12.1.0",
+    "ffmpeg-static": "5.3.0",
+    "omelette": "0.4.17",
+    "ora": "8.2.0",
+    "playwright": "1.58.2",
+    "sharp": "0.33.5"
+  },
+  "devDependencies": {
     "@pixdom/core": "workspace:*",
     "@pixdom/profiles": "workspace:*",
     "@pixdom/types": "workspace:*",
-    "commander": "12.1.0",
-    "omelette": "0.4.17",
-    "ora": "8.2.0"
-  },
-  "devDependencies": {
     "@types/node": "25.5.0",
+    "esbuild": "0.25.0",
     "tsx": "4.21.0",
     "typescript": "5.9.3"
   }

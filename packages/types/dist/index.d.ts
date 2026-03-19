@@ -112,6 +112,7 @@ export declare const RenderOptionsSchema: z.ZodObject<{
     autoSize: z.ZodOptional<z.ZodBoolean>;
     selector: z.ZodOptional<z.ZodString>;
     allowLocal: z.ZodOptional<z.ZodBoolean>;
+    auto: z.ZodOptional<z.ZodBoolean>;
 }, "strip", z.ZodTypeAny, {
     input: {
         type: "html";
@@ -139,6 +140,7 @@ export declare const RenderOptionsSchema: z.ZodObject<{
     autoSize?: boolean | undefined;
     selector?: string | undefined;
     allowLocal?: boolean | undefined;
+    auto?: boolean | undefined;
 }, {
     input: {
         type: "html";
@@ -166,6 +168,7 @@ export declare const RenderOptionsSchema: z.ZodObject<{
     autoSize?: boolean | undefined;
     selector?: string | undefined;
     allowLocal?: boolean | undefined;
+    auto?: boolean | undefined;
 }>;
 export type RenderOptions = z.infer<typeof RenderOptionsSchema>;
 export declare const ProfileIdSchema: z.ZodEnum<["linkedin-background", "linkedin-post", "linkedin-article-cover", "linkedin-profile", "linkedin-single-image-ad", "linkedin-career-background", "twitter-post", "twitter-header", "twitter-ad", "twitter-video", "twitter-ad-landscape", "instagram-post-3-4", "instagram-post-4-5", "instagram-post-square", "instagram-story", "instagram-reel", "instagram-profile", "instagram-story-video", "square", "instagram", "twitter", "linkedin"]>;

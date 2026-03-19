@@ -9,6 +9,8 @@ const STEP_LABELS: Record<string, string> = {
   'capture': 'Capturing screenshot',
   'read-image': 'Reading image',
   'write-output': 'Writing output',
+  'analyse-page': 'Analysing page',
+  'detect-animations': 'Detecting animations',
 };
 
 export interface ProgressReporterContext {

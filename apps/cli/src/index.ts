@@ -170,6 +170,7 @@ interface ConvertOpts {
   autoSize?: boolean;
   selector?: string;
   allowLocal?: boolean;
+  auto?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +248,15 @@ async function convertAction(opts: ConvertOpts, fmt: { argv: string[]; color: bo
       process.stderr.write(formatError(renderErr, fmt) + '\n');
       process.exit(1);
     }
+  }
+
+  // --auto + --image incompatibility guard
+  let autoEnabled = opts.auto === true;
+  if (autoEnabled && opts.image !== undefined) {
+    process.stderr.write(
+      'Warning: --auto is not supported for --image inputs and will be ignored.\n',
+    );
+    autoEnabled = false;
   }
 
   // Build the RenderInput discriminated union
@@ -336,7 +346,7 @@ async function convertAction(opts: ConvertOpts, fmt: { argv: string[]; color: bo
   }
 
   // Output path validation (6.1–6.3)
-  const outputPath = opts.output
+  let outputPath = opts.output
     ? path.resolve(opts.output)
     : path.resolve(`pixdom-output.${format}`);
 
@@ -362,6 +372,71 @@ async function convertAction(opts: ConvertOpts, fmt: { argv: string[]; color: bo
     fmt.noProgress,
   );
 
+  const ANIMATED_FORMATS_CLI = new Set(['gif', 'mp4', 'webm']);
+  const baseOnProgress = reporter.onProgress;
+  const onProgress = (event: Parameters<typeof baseOnProgress>[0]) => {
+    if (event.type === 'auto-detected') {
+      // Output path update must happen regardless of TTY state — affects file written to disk
+      if (event.duration === null && ANIMATED_FORMATS_CLI.has(format)) {
+        if (!opts.output) {
+          outputPath = path.resolve('pixdom-output.png');
+        } else if (/\.(gif|mp4|webm)$/i.test(outputPath)) {
+          outputPath = outputPath.replace(/\.(gif|mp4|webm)$/i, '.png');
+        }
+      }
+      if (!fmt.noProgress) {
+        // LCM-exceeded warning
+        if (event.lcmExceeded && event.lcmMs !== undefined) {
+          process.stderr.write(
+            `Warning: Animation LCM (${Math.round(event.lcmMs)}ms) exceeds 10s cap — using longest single cycle (${event.duration}ms)\n`,
+          );
+        }
+        // No animation warning
+        if (event.duration === null && ANIMATED_FORMATS_CLI.has(format)) {
+          process.stderr.write(
+            'Warning: No animation detected — producing static PNG. Use --duration to force animated output.\n',
+          );
+        }
+        // Ambiguity warning
+        if (event.elementAmbiguous) {
+          process.stderr.write(
+            'Auto-selector: ambiguous — capturing full page. Use --selector to specify.\n',
+          );
+        }
+        // Auto-summary block
+        const elementLabel = event.element
+          ? `${event.element} (${event.elementWidth}×${event.elementHeight})`
+          : event.elementAmbiguous
+            ? 'full page (ambiguous)'
+            : 'full page';
+        const durationLabel =
+          event.duration !== null
+            ? (() => {
+                const stratDesc =
+                  event.durationStrategy === 'css-lcm'
+                    ? 'CSS animation LCM'
+                    : event.durationStrategy === 'css-transition'
+                      ? 'CSS transition'
+                      : event.durationStrategy === 'source-pattern'
+                        ? 'source pattern'
+                        : 'detected';
+                return `${event.duration}ms (${stratDesc})`;
+              })()
+            : 'none detected — producing static PNG';
+        const timingDesc = event.fps >= 24 ? 'ease-in-out detected' : 'linear timing';
+        process.stderr.write(
+          `Auto mode:\n` +
+            `  Element:  ${elementLabel}\n` +
+            `  Duration: ${durationLabel}\n` +
+            `  FPS:      ${event.fps} (${timingDesc})\n` +
+            `  Frames:   ${event.frames}\n`,
+        );
+      }
+      return;
+    }
+    baseOnProgress(event);
+  };
+
   const result = await render(
     {
       input,
@@ -373,8 +448,9 @@ async function convertAction(opts: ConvertOpts, fmt: { argv: string[]; color: bo
       autoSize: selector ? false : (opts.autoSize ?? false),
       selector,
       allowLocal: opts.allowLocal === true,
+      auto: autoEnabled,
     },
-    { onProgress: reporter.onProgress },
+    { onProgress },
   );
 
   if (!result.ok) {
@@ -421,6 +497,10 @@ program
   .option('--auto-size', 'Auto-detect output dimensions from page content')
   .option('--selector <css>', 'CSS selector to capture a specific DOM element (e.g. "#canvas", ".card")')
   .option('--allow-local', 'Allow rendering of localhost and private network URLs (development only)')
+  .option(
+    '--auto',
+    'Automatically detect the primary content element, animation duration, and optimal FPS',
+  )
   .action(async (opts) => {
     const globalOpts = program.opts<{ color: boolean; progress: boolean }>();
     const color =

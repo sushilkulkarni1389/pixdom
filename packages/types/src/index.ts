@@ -33,6 +33,7 @@ export const RenderOptionsSchema = z.object({
   autoSize: z.boolean().optional(),
   selector: z.string().optional(),
   allowLocal: z.boolean().optional(),
+  auto: z.boolean().optional(),
 });
 export type RenderOptions = z.infer<typeof RenderOptionsSchema>;
 

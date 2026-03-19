@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { chromium } from 'playwright';
-import { detectAnimationCycle } from '@pixdom/detector';
+import { detectAnimationCycle, autoDetectElement, autoDetectDuration, autoDetectFps } from '@pixdom/detector';
 import { err, ok } from '@pixdom/types';
 import { makeError } from './errors.js';
 import { loadPage } from './load-page.js';
@@ -75,6 +75,80 @@ export async function render(options, { onProgress } = {}) {
             return err(makeError('PAGE_LOAD_FAILED', 'Failed to load page', cause));
         }
         emit({ type: 'step-done', step: 'load-page' });
+        // Auto-mode: detect element, duration, and FPS before renderer dispatch
+        // Skipped for image inputs (no DOM available)
+        let autoEffectiveSelector = options.selector;
+        let autoEffectiveDuration = options.duration;
+        let autoEffectiveFps = options.fps;
+        let autoSwitchedToStatic = false;
+        if (options.auto) {
+            // Step 1: auto-element detection
+            emit({ type: 'step-start', step: 'analyse-page' });
+            let autoElement = null;
+            let autoElementAmbiguous = false;
+            let autoElementWidth = 0;
+            let autoElementHeight = 0;
+            if (!options.selector) {
+                const elResult = await autoDetectElement(page);
+                if (elResult !== null) {
+                    autoElement = elResult.selector;
+                    autoElementAmbiguous = elResult.ambiguous;
+                    autoElementWidth = elResult.width;
+                    autoElementHeight = elResult.height;
+                    if (elResult.selector) {
+                        autoEffectiveSelector = elResult.selector;
+                    }
+                }
+            }
+            else {
+                autoElement = options.selector;
+            }
+            emit({ type: 'step-done', step: 'analyse-page' });
+            // Step 2: auto-duration and auto-fps detection
+            emit({ type: 'step-start', step: 'detect-animations' });
+            let autoDuration = null;
+            let autoDurationStrategy = null;
+            let autoLcmExceeded = false;
+            let autoLcmMs;
+            if (!options.duration) {
+                const durResult = await autoDetectDuration(page, autoEffectiveSelector ?? undefined);
+                if (durResult !== null) {
+                    autoDuration = durResult.durationMs;
+                    autoDurationStrategy = durResult.strategy;
+                    autoLcmExceeded = durResult.lcmMs !== undefined;
+                    autoLcmMs = durResult.lcmMs;
+                    autoEffectiveDuration = autoDuration ?? undefined;
+                }
+            }
+            else {
+                autoDuration = options.duration;
+                autoEffectiveDuration = options.duration;
+            }
+            if (!options.fps) {
+                autoEffectiveFps = await autoDetectFps(page, autoEffectiveSelector ?? undefined, autoEffectiveDuration ?? undefined);
+            }
+            emit({ type: 'step-done', step: 'detect-animations' });
+            const autoFrames = autoEffectiveDuration !== undefined
+                ? Math.round((autoEffectiveFps ?? 12) * (autoEffectiveDuration / 1000))
+                : 0;
+            emit({
+                type: 'auto-detected',
+                element: autoElement,
+                elementAmbiguous: autoElementAmbiguous,
+                elementWidth: autoElementWidth,
+                elementHeight: autoElementHeight,
+                duration: autoDuration,
+                durationStrategy: autoDurationStrategy,
+                lcmExceeded: autoLcmExceeded,
+                lcmMs: autoLcmMs,
+                fps: autoEffectiveFps ?? 12,
+                frames: autoFrames,
+            });
+            // If animated format requested but no animation detected, fall back to static
+            if (ANIMATED_FORMATS.has(options.format) && autoDuration === null && !options.duration) {
+                autoSwitchedToStatic = true;
+            }
+        }
         // Auto-size: resize viewport to match content dimensions after page load
         // Skipped when --selector is active (element bounding box drives output dimensions)
         if (options.autoSize && !options.selector) {
@@ -92,36 +166,54 @@ export async function render(options, { onProgress } = {}) {
             page.setDefaultTimeout(options.timeout);
         }
         // Selector resolution — must happen after page load, before renderer dispatch
+        // Use autoEffectiveSelector when auto-mode injected a detected selector
+        const resolvedSelector = autoEffectiveSelector;
         let elementHandle;
-        if (options.selector) {
+        if (resolvedSelector) {
             emit({ type: 'step-start', step: 'selector' });
-            const matches = await page.$$(options.selector);
+            const matches = await page.$$(resolvedSelector);
             if (matches.length === 0) {
-                return err(makeError('SELECTOR_NOT_FOUND', `Selector '${options.selector}' matched no elements in the page`));
+                return err(makeError('SELECTOR_NOT_FOUND', `Selector '${resolvedSelector}' matched no elements in the page`));
             }
             if (matches.length > 1) {
-                process.stderr.write(`Warning: selector '${options.selector}' matched ${matches.length} elements; using the first match\n`);
+                process.stderr.write(`Warning: selector '${resolvedSelector}' matched ${matches.length} elements; using the first match\n`);
             }
             const box = await matches[0].boundingBox();
             if (box === null) {
-                return err(makeError('SELECTOR_NOT_FOUND', `Selector '${options.selector}' matched no elements in the page`));
+                return err(makeError('SELECTOR_NOT_FOUND', `Selector '${resolvedSelector}' matched no elements in the page`));
             }
             elementHandle = matches[0];
             emit({ type: 'step-done', step: 'selector' });
         }
         const isAnimatedFormat = ANIMATED_FORMATS.has(options.format);
         const isStaticFormat = STATIC_FORMATS.has(options.format);
+        // auto-mode static fallback: no animation detected for animated format
+        if (autoSwitchedToStatic || isStaticFormat) {
+            try {
+                const staticOptions = autoSwitchedToStatic ? { ...options, format: 'png' } : options;
+                const buffer = await renderStatic(page, staticOptions, elementHandle, emit);
+                return ok(buffer);
+            }
+            catch (cause) {
+                return err(makeError('CAPTURE_FAILED', 'Static render failed', cause));
+            }
+        }
         if (isAnimatedFormat) {
             emit({ type: 'step-start', step: 'detect-animation' });
-            const cycleMs = options.duration ?? await detectAnimationCycle(page);
+            // Use auto-detected duration if available, otherwise fall back to detectAnimationCycle
+            const cycleMs = autoEffectiveDuration ?? await detectAnimationCycle(page);
             if (cycleMs === null) {
                 const pageContent = await page.content();
                 const hints = scanForCycleLengths(pageContent);
                 return err(makeError('NO_ANIMATION_DETECTED', `No animation detected on page; cannot produce animated ${options.format}`, undefined, hints));
             }
             emit({ type: 'step-done', step: 'detect-animation' });
+            // Use auto-detected fps if available
+            const effectiveOptions = autoEffectiveFps !== undefined && autoEffectiveFps !== options.fps
+                ? { ...options, fps: autoEffectiveFps }
+                : options;
             try {
-                const buffer = await renderAnimated(page, options, cycleMs, elementHandle, emit);
+                const buffer = await renderAnimated(page, effectiveOptions, cycleMs, elementHandle, emit);
                 return ok(buffer);
             }
             catch (cause) {
@@ -130,15 +222,6 @@ export async function render(options, { onProgress } = {}) {
                     ? 'ENCODE_FAILED'
                     : 'CAPTURE_FAILED';
                 return err(makeError(code, `Animated render failed: ${msg}`, cause));
-            }
-        }
-        if (isStaticFormat) {
-            try {
-                const buffer = await renderStatic(page, options, elementHandle, emit);
-                return ok(buffer);
-            }
-            catch (cause) {
-                return err(makeError('CAPTURE_FAILED', 'Static render failed', cause));
             }
         }
         return err(makeError('CAPTURE_FAILED', `Unknown output format: ${options.format}`));

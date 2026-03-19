@@ -26,6 +26,7 @@ export const RenderOptionsSchema = z.object({
     autoSize: z.boolean().optional(),
     selector: z.string().optional(),
     allowLocal: z.boolean().optional(),
+    auto: z.boolean().optional(),
 });
 // ProfileId — full union: 19 canonical slugs + 3 legacy aliases
 export const ProfileIdSchema = z.enum([

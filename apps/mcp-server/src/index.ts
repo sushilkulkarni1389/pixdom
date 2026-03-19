@@ -11,16 +11,9 @@ import { resolve, join } from 'node:path';
 
 // --- Output directory ---
 const OUTPUT_DIR = resolve(process.cwd(), 'output');
-await mkdir(OUTPUT_DIR, { recursive: true });
 
 // --- System prompt (loaded at startup) ---
 let systemPrompt: string;
-try {
-  systemPrompt = await readFile('.claude/context/claude-integration.md', 'utf-8');
-} catch {
-  systemPrompt =
-    'You are an HTML generation assistant. Output only valid, complete HTML markup with no explanation or markdown fencing. The HTML should be self-contained with inline styles.';
-}
 
 // --- Helpers ---
 
@@ -221,5 +214,21 @@ server.registerTool(
 
 // --- Start ---
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+async function main() {
+  await mkdir(OUTPUT_DIR, { recursive: true });
+
+  try {
+    systemPrompt = await readFile('.claude/context/claude-integration.md', 'utf-8');
+  } catch {
+    systemPrompt =
+      'You are an HTML generation assistant. Output only valid, complete HTML markup with no explanation or markdown fencing. The HTML should be self-contained with inline styles.';
+  }
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+main().catch((err) => {
+  process.stderr.write(String(err) + '\n');
+  process.exit(1);
+});
