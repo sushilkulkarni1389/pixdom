@@ -4,6 +4,8 @@
   "private": true,
   "description": "Convert HTML to platform-ready images and animated assets",
   "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
     "lint:md": "markdownlint-cli2 'openspec/**/*.md' '.claude/**/*.md'",
     "lint:md:fix": "markdownlint-cli2 --fix 'openspec/**/*.md' '.claude/**/*.md'",
     "lint:md:specs": "markdownlint-cli2 'openspec/specs/**/*.md'",
