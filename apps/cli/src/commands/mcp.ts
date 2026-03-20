@@ -7,6 +7,127 @@ import * as readline from 'node:readline';
 
 const CLAUDE_JSON_PATH = path.join(os.homedir(), '.claude.json');
 const MCP_ENTRY_NAME = 'pixdom';
+const KEYCHAIN_SERVICE = 'pixdom';
+const KEYCHAIN_ACCOUNT = 'anthropic_api_key';
+
+// ---------------------------------------------------------------------------
+// Keychain helpers (task 2.5 / 2.7)
+// ---------------------------------------------------------------------------
+
+function commandExists(cmd: string): boolean {
+  try { execSync(`which ${cmd}`, { stdio: 'pipe' }); return true; } catch { return false; }
+}
+
+type StoreResult =
+  | { method: 'keychain'; platform: string }
+  | { method: 'unavailable'; reason: string };
+
+function storeKeyInKeychain(key: string): StoreResult {
+  try {
+    if (process.platform === 'darwin') {
+      execSync(
+        `security add-generic-password -s ${KEYCHAIN_SERVICE} -a ${KEYCHAIN_ACCOUNT} -w ${key} -U`,
+        { stdio: 'pipe' },
+      );
+      return { method: 'keychain', platform: 'macOS keychain' };
+    }
+    if (process.platform === 'linux') {
+      if (commandExists('secret-tool')) {
+        execSync(
+          `secret-tool store --label="pixdom" service ${KEYCHAIN_SERVICE} username ${KEYCHAIN_ACCOUNT}`,
+          { input: key, stdio: ['pipe', 'pipe', 'pipe'] },
+        );
+        return { method: 'keychain', platform: 'system keychain (libsecret)' };
+      }
+      process.stderr.write(
+        'Note: secret-tool not found — install libsecret-tools for keychain storage.\n',
+      );
+      return { method: 'unavailable', reason: 'secret-tool not found' };
+    }
+    if (process.platform === 'win32') {
+      const script = [
+        `$v=[Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]::new()`,
+        `$c=[Windows.Security.Credentials.PasswordCredential,Windows.Security.Credentials,ContentType=WindowsRuntime]::new('${KEYCHAIN_SERVICE}','${KEYCHAIN_ACCOUNT}','${key}')`,
+        `$v.Add($c)`,
+      ].join(';');
+      execSync(`powershell -Command "${script}"`, { stdio: 'pipe' });
+      return { method: 'keychain', platform: 'Windows Credential Manager' };
+    }
+    return { method: 'unavailable', reason: `unsupported platform: ${process.platform}` };
+  } catch {
+    return { method: 'unavailable', reason: 'keychain operation failed' };
+  }
+}
+
+function readKeyFromKeychain(): string | null {
+  try {
+    if (process.platform === 'darwin') {
+      const r = execSync(
+        `security find-generic-password -s ${KEYCHAIN_SERVICE} -a ${KEYCHAIN_ACCOUNT} -w`,
+        { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf8' },
+      );
+      return r.trim() || null;
+    }
+    if (process.platform === 'linux' && commandExists('secret-tool')) {
+      const r = execSync(
+        `secret-tool lookup service ${KEYCHAIN_SERVICE} username ${KEYCHAIN_ACCOUNT}`,
+        { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf8' },
+      );
+      return r.trim() || null;
+    }
+    if (process.platform === 'win32') {
+      const script = [
+        `$v=[Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]::new()`,
+        `$c=$v.Retrieve('${KEYCHAIN_SERVICE}','${KEYCHAIN_ACCOUNT}')`,
+        `$c.RetrievePassword()`,
+        `Write-Output $c.Password`,
+      ].join(';');
+      const r = execSync(`powershell -Command "${script}"`, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        encoding: 'utf8',
+      });
+      return r.trim() || null;
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+type ApiKeySource = 'keychain' | 'env' | 'config' | 'not-set';
+
+function getApiKeySource(configKey?: string): ApiKeySource {
+  if (readKeyFromKeychain()) return 'keychain';
+  if (process.env['ANTHROPIC_API_KEY']) return 'env';
+  if (configKey) return 'config';
+  return 'not-set';
+}
+
+// ---------------------------------------------------------------------------
+// MCP output sandbox / file scope helpers (tasks 1.6 / 3.5)
+// ---------------------------------------------------------------------------
+
+function getMcpOutputDir(): string {
+  const envDir = process.env['PIXDOM_MCP_OUTPUT_DIR'];
+  if (envDir) {
+    return envDir.startsWith('~') ? path.join(os.homedir(), envDir.slice(1)) : path.resolve(envDir);
+  }
+  return path.join(os.homedir(), 'pixdom-output');
+}
+
+function getMcpAllowedDirs(): string[] {
+  const envDirs = process.env['PIXDOM_MCP_ALLOWED_DIRS'];
+  if (envDirs) {
+    return envDirs
+      .split(':')
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .map((d) => (d.startsWith('~') ? path.join(os.homedir(), d.slice(1)) : path.resolve(d)));
+  }
+  return [
+    path.join(os.homedir(), 'pixdom-input'),
+    path.join(os.homedir(), 'Downloads'),
+    path.join(os.homedir(), 'Desktop'),
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -148,9 +269,13 @@ async function cmdInstall(): Promise<void> {
       `\nNext steps:\n` +
       `  1. Restart Claude Code to load the MCP server\n` +
       `  2. Run /mcp in Claude Code to confirm pixdom is listed\n` +
-      `  3. To use generate_and_convert, add your API key:\n` +
-      `       pixdom mcp --set-key sk-ant-...\n` +
-      `     (or add ANTHROPIC_API_KEY to your shell profile)\n`,
+      `  3. To use generate_and_convert, set your Anthropic API key:\n` +
+      `\n` +
+      `     Recommended: add to ~/.bashrc (or ~/.zshrc):\n` +
+      `       export ANTHROPIC_API_KEY=sk-ant-...\n` +
+      `\n` +
+      `     Or store securely in your OS keychain:\n` +
+      `       pixdom mcp --set-key sk-ant-...\n`,
   );
 }
 
@@ -179,13 +304,26 @@ async function cmdSetKey(key: string): Promise<void> {
     }
   }
 
+  // Task 2.5: attempt keychain storage first
+  const storeResult = storeKeyInKeychain(key);
+
+  if (storeResult.method === 'keychain') {
+    process.stdout.write(`✔ API key stored in ${storeResult.platform}\n`);
+    return;
+  }
+
+  // Plaintext fallback: write to ~/.claude.json env block
   if (!entry.env) entry.env = {};
   (entry.env as Record<string, string>).ANTHROPIC_API_KEY = key;
   writeClaudeJsonAtomic(config);
 
+  // Harden file permissions to owner read/write only
+  try { fs.chmodSync(CLAUDE_JSON_PATH, 0o600); } catch { /* best-effort */ }
+
   process.stdout.write(
     `API key saved to ${CLAUDE_JSON_PATH} MCP config\n` +
-      `Note: ${CLAUDE_JSON_PATH} is not encrypted. For higher security, set ANTHROPIC_API_KEY in your shell profile instead.\n`,
+      `⚠  API key stored in plaintext in ${CLAUDE_JSON_PATH}\n` +
+      `   For better security: export ANTHROPIC_API_KEY=sk-ant-... in ~/.bashrc\n`,
   );
 }
 
@@ -250,16 +388,29 @@ function cmdStatus(): void {
     anyFail = true;
   }
 
-  // Check API key
-  const envKey = process.env.ANTHROPIC_API_KEY;
+  // Check API key — task 2.7: show storage method
   const configKey = (configEntry?.env as Record<string, string> | undefined)?.ANTHROPIC_API_KEY;
-  if (envKey) {
-    process.stdout.write(`  API key:         ✔ set in shell environment\n`);
-  } else if (configKey) {
-    process.stdout.write(`  API key:         ✔ set in MCP config\n`);
-  } else {
-    process.stdout.write(`  API key:         ✘ not set (ANTHROPIC_API_KEY missing)\n`);
-    anyFail = true;
+  const keySource = getApiKeySource(configKey);
+  const keySourceLabels: Record<typeof keySource, string> = {
+    keychain: 'keychain',
+    env: 'env var (ANTHROPIC_API_KEY)',
+    config: 'plaintext (~/.claude.json)',
+    'not-set': 'not set',
+  };
+  const keyOk = keySource !== 'not-set';
+  const keyIcon = keyOk ? '✔' : '✘';
+  process.stdout.write(`  API key storage: ${keyIcon} ${keySourceLabels[keySource]}\n`);
+  if (!keyOk) anyFail = true;
+
+  // Task 1.6: output sandbox directory
+  const outputDir = getMcpOutputDir();
+  process.stdout.write(`  Output directory: ${outputDir}\n`);
+
+  // Task 3.5: allowed input directories
+  const allowedDirs = getMcpAllowedDirs();
+  process.stdout.write(`  Allowed input dirs:\n`);
+  for (const dir of allowedDirs) {
+    process.stdout.write(`    • ${dir}\n`);
   }
 
   process.stdout.write(`  Claude Code:     restart required to apply any recent changes\n`);

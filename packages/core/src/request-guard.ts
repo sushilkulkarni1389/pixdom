@@ -81,6 +81,18 @@ export async function installRequestGuard(page: Page, options: RenderOptions): P
       return;
     }
 
+    // MCP sub-resource hardening: when blockFileSubresources is set, only the main document
+    // navigation is allowed to use file:. All sub-resource file: requests are aborted to
+    // prevent a malicious HTML file from exfiltrating other local files via <link>/<iframe>.
+    if (
+      options.blockFileSubresources &&
+      url.protocol === 'file:' &&
+      route.request().resourceType() !== 'document'
+    ) {
+      await route.abort('blockedbyclient');
+      return;
+    }
+
     // Host check — skip if allowLocal is enabled or if this is a file: URL (no hostname)
     if (!allowLocal && url.protocol !== 'file:') {
       const blocked = await isBlockedHost(url.hostname);

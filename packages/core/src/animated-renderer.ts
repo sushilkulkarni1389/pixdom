@@ -1,11 +1,11 @@
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Page, ElementHandle } from 'playwright';
 import type { RenderOptions } from '@pixdom/types';
 import { getFfmpegPath, spawnFfmpeg } from './ffmpeg-spawn.js';
+import { registerTempDir, releaseTempDir } from './temp-registry.js';
 import type { OnProgress } from './progress.js';
 
 /**
@@ -152,21 +152,11 @@ export async function renderAnimated(
   const tmpDir = path.join(os.tmpdir(), `pixdom-${randomUUID()}`);
   await fs.mkdir(tmpDir, { recursive: true });
 
-  // Restrict temp dir access to owner only (10.1)
+  // Restrict temp dir access to owner only
   await fs.chmod(tmpDir, 0o700);
 
-  // Signal handlers to clean up temp files on early exit (10.2)
-  const cleanup = (): void => {
-    try {
-      fsSync.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors during signal handling
-    }
-  };
-  const sigtermHandler = (): void => { cleanup(); process.kill(process.pid, 'SIGTERM'); };
-  const sigintHandler = (): void => { cleanup(); process.kill(process.pid, 'SIGINT'); };
-  process.once('SIGTERM', sigtermHandler);
-  process.once('SIGINT', sigintHandler);
+  // Register with the centralised registry so the module-level signal handler can clean up
+  registerTempDir(tmpDir);
 
   try {
     const fps = options.fps ?? 30;
@@ -194,9 +184,6 @@ export async function renderAnimated(
     emit({ type: 'step-done', step: 'write-output' });
     return buf;
   } finally {
-    // Remove signal handlers to avoid accumulation (10.3)
-    process.off('SIGTERM', sigtermHandler);
-    process.off('SIGINT', sigintHandler);
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await releaseTempDir(tmpDir);
   }
 }

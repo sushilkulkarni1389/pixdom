@@ -1,27 +1,33 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+// temp-registry is pulled in transitively via @pixdom/core → animated-renderer → temp-registry.
+// Importing render here ensures signal handlers are registered before any tool call.
 import { render } from '@pixdom/core';
 import type { RenderError } from '@pixdom/core';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { getProfile } from '@pixdom/profiles';
 import { ProfileIdSchema } from '@pixdom/types';
 import type { ProfileId, RenderOptions, OutputFormat, RenderInput } from '@pixdom/types';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
-import { resolve, join } from 'node:path';
-import { validateUrl, validateOutputPath, validateResourceLimits, validateFileInput } from './validate-input.js';
-
-// --- Output directory ---
-const OUTPUT_DIR = resolve(process.cwd(), 'output');
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { validateUrl, validateResourceLimits, validateFileInput } from './validate-input.js';
+import { OUTPUT_DIR, resolveApiKey } from './env.js';
+import {
+  ensureMcpOutputDir,
+  validateMcpOutputPath,
+  generateMcpOutputPath,
+} from './mcp-sandbox.js';
+import { getMcpAllowedDirs, validateMcpFilePath } from './mcp-file-scope.js';
 
 // --- System prompt (loaded at startup) ---
 let systemPrompt: string;
 
+// --- Anthropic client (initialised in main() after key resolution) ---
+let anthropic: Anthropic;
+
 // --- Helpers ---
 
-// task 1.4: structured error helper
 type McpCallToolResult = { isError: true; content: [{ type: 'text'; text: string }] };
 
 function mcpError(code: string, message: string, howToFix: string): McpCallToolResult {
@@ -31,17 +37,12 @@ function mcpError(code: string, message: string, howToFix: string): McpCallToolR
   };
 }
 
-// Extracts usable HTML from a raw Claude API response string.
-// Strips markdown fences, finds the first HTML boundary, and trims whitespace.
-// Returns an empty string if no '<' character is found.
 function robustHtmlExtract(raw: string): string {
-  // Step 1: strip markdown code fences
   let s = raw
     .replace(/^```html\s*\n?/gm, '')
     .replace(/^```\s*\n?/gm, '')
     .replace(/\n?```\s*$/gm, '');
 
-  // Step 2: slice from first HTML boundary
   const doctype = s.indexOf('<!DOCTYPE');
   const htmlTag = s.indexOf('<html');
   const firstAngle = s.indexOf('<');
@@ -51,7 +52,6 @@ function robustHtmlExtract(raw: string): string {
   const start = Math.min(...candidates);
   s = s.slice(start);
 
-  // Step 3: trim
   return s.trim();
 }
 
@@ -79,10 +79,7 @@ function mcpErrorFromRenderError(err: RenderError): McpCallToolResult {
   return mcpError(err.code, err.message, howToFix);
 }
 
-// task 2.1: profile enum derived from ProfileIdSchema
 const profileEnum = z.enum(ProfileIdSchema.options);
-
-// task 2.2: profile slug list for tool descriptions
 const profileSlugList = ProfileIdSchema.options.join(' | ');
 
 function resolveProfile(params: {
@@ -118,9 +115,9 @@ async function writeOutput(
   format: string,
   customPath?: string,
 ): Promise<string> {
-  const outputPath = customPath
-    ? resolve(customPath)
-    : join(OUTPUT_DIR, `${randomUUID()}.${format}`);
+  const outputDir = ensureMcpOutputDir();
+  // Rule 8: use env.OUTPUT_DIR (sandbox) as base — never a hardcoded path
+  const outputPath = customPath ?? generateMcpOutputPath(outputDir, format);
   await writeFile(outputPath, buffer);
   return outputPath;
 }
@@ -134,7 +131,6 @@ const server = new McpServer(
 
 // --- Tool: convert_html_to_asset ---
 
-// task 2.2: tool description with usage examples
 const CONVERT_DESCRIPTION = [
   'Convert HTML, a URL, a local HTML file, or a local image to an image or animated asset (PNG, JPEG, WebP, GIF, MP4, WebM).',
   '',
@@ -153,12 +149,10 @@ server.registerTool(
   {
     description: CONVERT_DESCRIPTION,
     inputSchema: {
-      // task 3.1: four optional input modes
       html: z.string().optional().describe('Inline HTML markup to render'),
       url: z.string().optional().describe('Remote URL to render (http/https only)'),
       file: z.string().optional().describe('Absolute path to a local .html or .htm file'),
       image: z.string().optional().describe('Absolute path to a local image file (.png, .jpg, .jpeg, .webp, .gif) — bypasses the browser'),
-      // output options
       profile: profileEnum.optional().describe(`Platform preset to apply. Options: ${profileSlugList}`),
       format: z
         .enum(['png', 'jpeg', 'webp', 'gif', 'mp4', 'webm'])
@@ -168,8 +162,7 @@ server.registerTool(
       width: z.coerce.number().int().min(1).max(7680).optional().default(1280).describe('Viewport width (1–7680). Must be a number, not a string.'),
       height: z.coerce.number().int().min(1).max(4320).optional().default(720).describe('Viewport height (1–4320). Must be a number, not a string.'),
       quality: z.coerce.number().min(0).max(100).optional().default(90).describe('Output quality (0–100). Must be a number, not a string.'),
-      output: z.string().optional().describe('Custom output file path'),
-      // task 4.1: processing flags
+      output: z.string().optional().describe(`Custom output file path (must be inside ${OUTPUT_DIR})`),
       selector: z.string().optional().describe('CSS selector to capture a specific DOM element (e.g. "#card", ".hero")'),
       auto: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean()).optional().describe('Enable smart auto mode: automatically detects animated elements, duration, and FPS. Must be boolean true or false, not a string.'),
       autoSize: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean()).optional().describe('Auto-detect content dimensions and resize viewport to fit. Must be boolean true or false, not a string.'),
@@ -180,7 +173,15 @@ server.registerTool(
   },
   async (params) => {
     try {
-      // task 3.2: exactly-one-input enforcement
+      // Task 1.4: ensure sandbox exists and validate/generate output path
+      const outputDir = ensureMcpOutputDir();
+
+      if (params.output) {
+        const sandboxErr = validateMcpOutputPath(params.output, outputDir);
+        if (sandboxErr) return mcpError(sandboxErr.code, sandboxErr.message, sandboxErr.howToFix);
+      }
+
+      // Exactly-one-input enforcement
       const inputCount = [params.html, params.url, params.file, params.image].filter(
         (v) => v !== undefined,
       ).length;
@@ -194,7 +195,7 @@ server.registerTool(
         );
       }
 
-      // task 4.2: resource limits
+      // Resource limits
       const limitsErr = validateResourceLimits({
         width: params.width,
         height: params.height,
@@ -203,23 +204,21 @@ server.registerTool(
       });
       if (limitsErr) return mcpError(limitsErr.code, limitsErr.message, limitsErr.howToFix);
 
-      // task 4.4: output path validation
-      if (params.output) {
-        const outErr = validateOutputPath(params.output);
-        if (outErr) return mcpError(outErr.code, outErr.message, outErr.howToFix);
-      }
-
-      // Build RenderInput — task 3.3–3.6
+      // Build RenderInput
       let input: RenderInput;
+      let blockFileSubresources = false;
 
       if (params.url !== undefined) {
-        // task 3.3: URL validation
         const urlErr = await validateUrl(params.url, params.allowLocal ?? false);
         if (urlErr) return mcpError(urlErr.code, urlErr.message, urlErr.howToFix);
         input = { type: 'url', url: params.url };
 
       } else if (params.file !== undefined) {
-        // task 3.4: file input validation
+        // Task 3.3: validate file path against MCP allowlist
+        const allowedDirs = getMcpAllowedDirs();
+        const filePathErr = validateMcpFilePath(params.file, allowedDirs);
+        if (filePathErr) return mcpError(filePathErr.code, filePathErr.message, filePathErr.howToFix);
+
         let resolvedPath: string;
         try {
           resolvedPath = realpathSync(params.file);
@@ -229,9 +228,9 @@ server.registerTool(
         const fileErr = validateFileInput('--file', resolvedPath);
         if (fileErr) return mcpError(fileErr.code, fileErr.message, 'Use .html or .htm for file input.');
         input = { type: 'file', path: resolvedPath };
+        blockFileSubresources = true; // Task 3.4: block sub-resource file: requests in MCP context
 
       } else if (params.image !== undefined) {
-        // task 3.5: image input validation
         let resolvedPath: string;
         try {
           resolvedPath = realpathSync(params.image);
@@ -243,30 +242,27 @@ server.registerTool(
         input = { type: 'image', path: resolvedPath };
 
       } else {
-        // html
         input = { type: 'html', html: params.html! };
       }
 
-      // task 3.6: build RenderOptions
       const { format, width, height, quality } = resolveProfile(params);
       const options: RenderOptions = {
         input,
         format,
         viewport: { width, height, deviceScaleFactor: 1 },
         quality,
-        // task 4.3: processing flags
         selector: params.selector,
         auto: params.auto,
         autoSize: params.autoSize,
         fps: params.fps,
         duration: params.duration,
         allowLocal: params.allowLocal,
+        blockFileSubresources,
       };
 
       const result = await render(options);
 
       if (!result.ok) {
-        // task 5.2: structured render errors
         return mcpErrorFromRenderError(result.error);
       }
 
@@ -286,7 +282,6 @@ server.registerTool(
         ],
       };
     } catch (e) {
-      // task 5.3: catch-all
       const message = e instanceof Error ? e.message : String(e);
       return mcpError('INTERNAL_ERROR', message, 'Check the MCP server logs for details.');
     }
@@ -312,7 +307,6 @@ server.registerTool(
     description: GENERATE_DESCRIPTION,
     inputSchema: {
       prompt: z.string().describe('Plain-text description of the desired visual'),
-      // task 2.1: full profile enum
       profile: profileEnum.optional().describe(`Platform preset to apply. Options: ${profileSlugList}`),
       format: z
         .enum(['png', 'jpeg', 'webp', 'gif', 'mp4', 'webm'])
@@ -327,8 +321,7 @@ server.registerTool(
         .optional()
         .default('claude-sonnet-4-20250514')
         .describe('Claude model to use for HTML generation'),
-      output: z.string().optional().describe('Custom output file path'),
-      // task 6.1: processing flags
+      output: z.string().optional().describe(`Custom output file path (must be inside ${OUTPUT_DIR})`),
       selector: z.string().optional().describe('CSS selector to capture a specific DOM element from the generated HTML'),
       auto: z.preprocess(v => v === 'true' ? true : v === 'false' ? false : v, z.boolean()).optional().describe('Enable smart auto mode: automatically detects animated elements, duration, and FPS. Must be boolean true or false, not a string.'),
       fps: z.coerce.number().int().min(1).max(60).optional().describe('Frame rate for animated output (1–60). Must be a number, not a string.'),
@@ -337,7 +330,15 @@ server.registerTool(
   },
   async (params) => {
     try {
-      // task 6.2: resource limits before Claude API call
+      // Task 1.5: sandbox check BEFORE Claude API call
+      const outputDir = ensureMcpOutputDir();
+
+      if (params.output) {
+        const sandboxErr = validateMcpOutputPath(params.output, outputDir);
+        if (sandboxErr) return mcpError(sandboxErr.code, sandboxErr.message, sandboxErr.howToFix);
+      }
+
+      // Resource limits before Claude API call
       const limitsErr = validateResourceLimits({
         width: params.width,
         height: params.height,
@@ -345,14 +346,6 @@ server.registerTool(
         duration: params.duration,
       });
       if (limitsErr) return mcpError(limitsErr.code, limitsErr.message, limitsErr.howToFix);
-
-      // task 6.3: output path validation
-      if (params.output) {
-        const outErr = validateOutputPath(params.output);
-        if (outErr) return mcpError(outErr.code, outErr.message, outErr.howToFix);
-      }
-
-      const anthropic = new Anthropic();
 
       const message = await anthropic.messages.create({
         model: params.model ?? 'claude-sonnet-4-20250514',
@@ -391,7 +384,6 @@ server.registerTool(
       const result = await render(options);
 
       if (!result.ok) {
-        // task 6.5: structured render errors
         return mcpErrorFromRenderError(result.error);
       }
 
@@ -411,12 +403,10 @@ server.registerTool(
         ],
       };
     } catch (e) {
-      // task 6.5: catch-all — avoid leaking API key
+      // Ensure ANTHROPIC_API_KEY is never present in error output
       const message = e instanceof Error ? e.message : String(e);
-      // Ensure ANTHROPIC_API_KEY is not present in the error output
-      const safeMessage = process.env['ANTHROPIC_API_KEY']
-        ? message.replace(process.env['ANTHROPIC_API_KEY'], '[REDACTED]')
-        : message;
+      const apiKey = resolveApiKey();
+      const safeMessage = apiKey ? message.replace(apiKey, '[REDACTED]') : message;
       return mcpError('INTERNAL_ERROR', safeMessage, 'Check the MCP server logs for details.');
     }
   },
@@ -425,6 +415,18 @@ server.registerTool(
 // --- Start ---
 
 async function main() {
+  // Task 2.6: resolve API key via env.ts (keychain → env var → ~/.claude.json)
+  const apiKey = resolveApiKey();
+  if (!apiKey) {
+    process.stderr.write(
+      'Warning: ANTHROPIC_API_KEY not found. generate_and_convert will fail until a key is set.\n' +
+        'Run: pixdom mcp --set-key sk-ant-... or export ANTHROPIC_API_KEY in your shell.\n',
+    );
+  }
+  // Rule 3: pass resolved key explicitly — never read process.env.ANTHROPIC_API_KEY directly
+  anthropic = new Anthropic({ apiKey: apiKey ?? undefined });
+
+  // Task 1.4/1.5: ensure sandbox output dir exists
   await mkdir(OUTPUT_DIR, { recursive: true });
 
   try {

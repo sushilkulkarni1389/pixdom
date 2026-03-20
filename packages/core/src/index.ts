@@ -15,6 +15,7 @@ import type { OnProgress } from './progress.js';
 
 export type { RenderError, RenderErrorCode };
 export type { ProgressEvent, OnProgress } from './progress.js';
+export { registerTempDir, releaseTempDir, cleanupAll } from './temp-registry.js';
 
 const ANIMATED_FORMATS = new Set(['gif', 'mp4', 'webm']);
 const STATIC_FORMATS = new Set(['png', 'jpeg', 'webp']);

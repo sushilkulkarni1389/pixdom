@@ -35,6 +35,7 @@ export const RenderOptionsSchema = z.object({
   allowLocal: z.boolean().optional(),
   auto: z.boolean().optional(),
   profileViewport: z.boolean().optional(),
+  blockFileSubresources: z.boolean().optional(),
 });
 export type RenderOptions = z.infer<typeof RenderOptionsSchema>;
 

@@ -19,7 +19,7 @@
 - **THEN** stdout contains usage information including `--install`, `--uninstall`, `--status`, and `--set-key` and the process exits with code 0
 
 ### Requirement: --install writes MCP config entry
-`pixdom mcp --install` SHALL write a `mcpServers.pixdom` entry to `~/.claude.json` and print a confirmation with the resolved binary path and next steps.
+`pixdom mcp --install` SHALL write a `mcpServers.pixdom` entry to `~/.claude.json` and print a confirmation with the resolved binary path and next steps. The confirmation output SHALL prominently recommend setting `ANTHROPIC_API_KEY` via an environment variable as the primary method, with `pixdom mcp --set-key` presented as a secondary option.
 
 #### Scenario: ~/.claude.json does not exist
 - **WHEN** `pixdom mcp --install` is run and `~/.claude.json` does not exist
@@ -45,6 +45,10 @@
 - **WHEN** `pixdom mcp --install` is run and `mcpServers.pixdom` already exists in `~/.claude.json`
 - **THEN** the process prompts "pixdom MCP server is already configured. Overwrite? (y/N)" and does not write unless the user confirms
 
+#### Scenario: Confirmation output includes env var recommendation first
+- **WHEN** `pixdom mcp --install` completes successfully
+- **THEN** stdout contains "Recommended: export ANTHROPIC_API_KEY=<your-key> in ~/.bashrc" before any mention of `--set-key`
+
 #### Scenario: Confirmation output includes next steps
 - **WHEN** `pixdom mcp --install` completes successfully
 - **THEN** stdout includes the resolved command path, a prompt to restart Claude Code, and instructions for running `/mcp` to verify
@@ -61,15 +65,19 @@
 - **THEN** the process exits with a non-zero code and prints "Could not parse ~/.claude.json — please check the file manually" without modifying the file
 
 ### Requirement: --set-key stores API key in MCP config env
-`pixdom mcp --set-key <key>` SHALL add `ANTHROPIC_API_KEY` to the `env` block of the `mcpServers.pixdom` entry in `~/.claude.json`. The key value SHALL NOT be printed to stdout after being stored.
+`pixdom mcp --set-key <key>` SHALL attempt to store `ANTHROPIC_API_KEY` in the OS keychain first (see `api-key-keychain` spec). If keychain storage fails or is unavailable, it SHALL fall back to adding `ANTHROPIC_API_KEY` to the `env` block of the `mcpServers.pixdom` entry in `~/.claude.json`. When falling back to plaintext, the file SHALL be written atomically and permissions set to `0o600`. The key value SHALL NOT be printed to stdout after being stored.
 
-#### Scenario: API key written to env block
-- **WHEN** `pixdom mcp --set-key sk-ant-xxx` is run and a `mcpServers.pixdom` entry exists
-- **THEN** `~/.claude.json` is updated with `"env": { "ANTHROPIC_API_KEY": "sk-ant-xxx" }` under the pixdom entry and stdout contains "API key saved to ~/.claude.json MCP config"
+#### Scenario: API key stored in keychain when available
+- **WHEN** `pixdom mcp --set-key sk-ant-xxx` is run on a system with keychain support
+- **THEN** the key is stored in the OS keychain and stdout does not contain `sk-ant-xxx`
 
-#### Scenario: Security warning is printed
-- **WHEN** `pixdom mcp --set-key` completes successfully
-- **THEN** stdout contains a warning that `~/.claude.json` is not encrypted and suggests using a shell profile for higher security
+#### Scenario: API key written to env block on plaintext fallback
+- **WHEN** `pixdom mcp --set-key sk-ant-xxx` is run and keychain is unavailable and a `mcpServers.pixdom` entry exists
+- **THEN** `~/.claude.json` is updated with `"env": { "ANTHROPIC_API_KEY": "sk-ant-xxx" }` under the pixdom entry, permissions are set to `0o600`, and stdout contains "API key saved to ~/.claude.json MCP config"
+
+#### Scenario: Plaintext warning printed on fallback
+- **WHEN** the key falls back to plaintext storage
+- **THEN** stdout contains the plaintext security warning mentioning `~/.claude.json`
 
 #### Scenario: API key value is not echoed to stdout
 - **WHEN** `pixdom mcp --set-key sk-ant-xxx` is run
@@ -91,7 +99,7 @@
 - **THEN** the process exits with code 0 and stdout contains "pixdom MCP server is not configured — nothing to remove."
 
 ### Requirement: --status reports health of MCP setup
-`pixdom mcp --status` SHALL check for the config entry, the binary, and the API key, and print a human-readable status summary.
+`pixdom mcp --status` SHALL check for the config entry, the binary, the API key, the MCP output sandbox directory, and the allowed input directories, and print a human-readable status summary.
 
 #### Scenario: All checks pass
 - **WHEN** `pixdom mcp --status` is run and the config entry exists, the binary is executable, and ANTHROPIC_API_KEY is set
@@ -106,5 +114,13 @@
 - **THEN** stdout shows a failure indicator for Binary and exits with a non-zero code
 
 #### Scenario: API key not set
-- **WHEN** `pixdom mcp --status` is run and ANTHROPIC_API_KEY is neither in shell env nor in the MCP config env block
-- **THEN** stdout shows a failure indicator for API key
+- **WHEN** `pixdom mcp --status` is run and ANTHROPIC_API_KEY is found by no storage method
+- **THEN** stdout shows "API key storage: not set"
+
+#### Scenario: Output sandbox directory shown in status
+- **WHEN** `pixdom mcp --status` is run
+- **THEN** stdout contains "Output directory:" followed by the effective `PIXDOM_MCP_OUTPUT_DIR` path
+
+#### Scenario: Allowed input dirs shown in status
+- **WHEN** `pixdom mcp --status` is run
+- **THEN** stdout contains "Allowed input dirs:" followed by the effective allowlist
