@@ -1,145 +1,113 @@
 import { describe, it, expect } from 'vitest'
 import {
-  resolveProfile,
-  getProfile,
-  groupedProfiles,
-  PROFILES,
-  LINKEDIN_POST,
-  TWITTER_POST,
-  INSTAGRAM_POST_SQUARE,
+  RenderInputSchema,
+  OutputFormatSchema,
+  ViewportOptionsSchema,
+  RenderOptionsSchema,
+  ProfileIdSchema,
+  ok,
+  err,
 } from './index.js'
 
-// ---------------------------------------------------------------------------
-// resolveProfile — canonical slugs
-// ---------------------------------------------------------------------------
-describe('resolveProfile — canonical slugs', () => {
-  it('resolves linkedin-post correctly', () => {
-    const profile = resolveProfile('linkedin-post')
-    expect(profile.id).toBe('linkedin-post')
-    expect(profile.width).toBe(1200)
-    expect(profile.height).toBe(1200)
-    expect(profile.format).toBe('jpeg')
-    expect(profile.group).toBe('linkedin')
+describe('RenderInputSchema', () => {
+  it('accepts html input', () => {
+    expect(RenderInputSchema.safeParse({ type: 'html', html: '<h1>Hello</h1>' }).success).toBe(true)
   })
-
-  it('resolves twitter-post correctly', () => {
-    const profile = resolveProfile('twitter-post')
-    expect(profile.width).toBe(1600)
-    expect(profile.height).toBe(900)
-    expect(profile.format).toBe('png')
+  it('accepts file input', () => {
+    expect(RenderInputSchema.safeParse({ type: 'file', path: '/tmp/index.html' }).success).toBe(true)
   })
-
-  it('resolves instagram-story correctly', () => {
-    const profile = resolveProfile('instagram-story')
-    expect(profile.width).toBe(1080)
-    expect(profile.height).toBe(1920)
-    expect(profile.format).toBe('jpeg')
+  it('accepts url input', () => {
+    expect(RenderInputSchema.safeParse({ type: 'url', url: 'https://example.com' }).success).toBe(true)
   })
-
-  it('resolves square correctly', () => {
-    const profile = resolveProfile('square')
-    expect(profile.width).toBe(1080)
-    expect(profile.height).toBe(1080)
-    expect(profile.format).toBe('png')
-    expect(profile.quality).toBe(100)
+  it('accepts image input', () => {
+    expect(RenderInputSchema.safeParse({ type: 'image', path: '/tmp/photo.png' }).success).toBe(true)
+  })
+  it('rejects unknown type', () => {
+    expect(RenderInputSchema.safeParse({ type: 'pdf', path: '/tmp/doc.pdf' }).success).toBe(false)
+  })
+  it('rejects html input missing html field', () => {
+    expect(RenderInputSchema.safeParse({ type: 'html' }).success).toBe(false)
   })
 })
 
-// ---------------------------------------------------------------------------
-// resolveProfile — legacy aliases
-// ---------------------------------------------------------------------------
-describe('resolveProfile — legacy aliases', () => {
-  it('instagram alias resolves to instagram-post-square', () => {
-    const profile = resolveProfile('instagram')
-    expect(profile).toStrictEqual(INSTAGRAM_POST_SQUARE)
-    expect(profile.id).toBe('instagram-post-square')
+describe('OutputFormatSchema', () => {
+  const validFormats = ['png', 'jpeg', 'webp', 'gif', 'mp4', 'webm']
+  it.each(validFormats)('accepts %s', (format) => {
+    expect(OutputFormatSchema.safeParse(format).success).toBe(true)
   })
-
-  it('twitter alias resolves to twitter-post', () => {
-    const profile = resolveProfile('twitter')
-    expect(profile).toStrictEqual(TWITTER_POST)
-    expect(profile.id).toBe('twitter-post')
-  })
-
-  it('linkedin alias resolves to linkedin-post', () => {
-    const profile = resolveProfile('linkedin')
-    expect(profile).toStrictEqual(LINKEDIN_POST)
-    expect(profile.id).toBe('linkedin-post')
+  it('rejects invalid format', () => {
+    expect(OutputFormatSchema.safeParse('svg').success).toBe(false)
   })
 })
 
-// ---------------------------------------------------------------------------
-// getProfile — backwards compat wrapper
-// ---------------------------------------------------------------------------
-describe('getProfile', () => {
-  it('returns same result as resolveProfile for canonical slug', () => {
-    expect(getProfile('linkedin-background')).toStrictEqual(resolveProfile('linkedin-background'))
+describe('ViewportOptionsSchema', () => {
+  it('applies defaults when fields are omitted', () => {
+    const result = ViewportOptionsSchema.parse({})
+    expect(result.width).toBe(1280)
+    expect(result.height).toBe(720)
+    expect(result.deviceScaleFactor).toBe(1)
   })
-
-  it('returns same result as resolveProfile for legacy alias', () => {
-    expect(getProfile('instagram')).toStrictEqual(resolveProfile('instagram'))
-  })
-})
-
-// ---------------------------------------------------------------------------
-// PROFILES record — completeness
-// ---------------------------------------------------------------------------
-describe('PROFILES record', () => {
-  const expectedCanonicalCount = 19
-
-  it(`contains exactly ${expectedCanonicalCount} canonical profiles`, () => {
-    expect(Object.keys(PROFILES).length).toBe(expectedCanonicalCount)
-  })
-
-  it('does not contain legacy alias keys', () => {
-    expect(PROFILES['instagram']).toBeUndefined()
-    expect(PROFILES['twitter']).toBeUndefined()
-    expect(PROFILES['linkedin']).toBeUndefined()
-  })
-
-  it('every profile has required fields', () => {
-    for (const [slug, profile] of Object.entries(PROFILES)) {
-      expect(profile.id, `${slug} missing id`).toBeTruthy()
-      expect(profile.width, `${slug} missing width`).toBeGreaterThan(0)
-      expect(profile.height, `${slug} missing height`).toBeGreaterThan(0)
-      expect(profile.format, `${slug} missing format`).toBeTruthy()
-      expect(profile.label, `${slug} missing label`).toBeTruthy()
-      expect(profile.group, `${slug} missing group`).toBeTruthy()
-    }
+  it('accepts custom viewport values', () => {
+    const result = ViewportOptionsSchema.parse({ width: 1920, height: 1080, deviceScaleFactor: 2 })
+    expect(result.width).toBe(1920)
+    expect(result.height).toBe(1080)
+    expect(result.deviceScaleFactor).toBe(2)
   })
 })
 
-// ---------------------------------------------------------------------------
-// groupedProfiles — partitioning
-// ---------------------------------------------------------------------------
-describe('groupedProfiles', () => {
-  it('returns linkedin, twitter, instagram, and generic groups', () => {
-    const groups = groupedProfiles()
-    expect(groups['linkedin']).toBeDefined()
-    expect(groups['twitter']).toBeDefined()
-    expect(groups['instagram']).toBeDefined()
-    expect(groups['generic']).toBeDefined()
+describe('RenderOptionsSchema', () => {
+  const base = {
+    input: { type: 'html', html: '<h1>Test</h1>' },
+    format: 'png',
+    viewport: { width: 1280, height: 720, deviceScaleFactor: 1 },
+  }
+  it('accepts valid minimal options', () => {
+    expect(RenderOptionsSchema.safeParse(base).success).toBe(true)
   })
-
-  it('linkedin group has 6 profiles', () => {
-    expect(groupedProfiles()['linkedin'].length).toBe(6)
+  it('accepts quality within 0–100', () => {
+    expect(RenderOptionsSchema.safeParse({ ...base, quality: 85 }).success).toBe(true)
+    expect(RenderOptionsSchema.safeParse({ ...base, quality: 0 }).success).toBe(true)
+    expect(RenderOptionsSchema.safeParse({ ...base, quality: 100 }).success).toBe(true)
   })
-
-  it('twitter group has 5 profiles', () => {
-    expect(groupedProfiles()['twitter'].length).toBe(5)
+  it('rejects quality above 100', () => {
+    expect(RenderOptionsSchema.safeParse({ ...base, quality: 101 }).success).toBe(false)
   })
-
-  it('instagram group has 7 profiles', () => {
-    expect(groupedProfiles()['instagram'].length).toBe(7)
+  it('rejects quality below 0', () => {
+    expect(RenderOptionsSchema.safeParse({ ...base, quality: -1 }).success).toBe(false)
   })
-
-  it('generic group has 1 profile', () => {
-    expect(groupedProfiles()['generic'].length).toBe(1)
+  it('rejects non-integer quality', () => {
+    expect(RenderOptionsSchema.safeParse({ ...base, quality: 85.5 }).success).toBe(false)
   })
+})
 
-  it('total grouped profiles equals canonical count', () => {
-    const groups = groupedProfiles()
-    const total = Object.values(groups).reduce((sum, arr) => sum + arr.length, 0)
-    expect(total).toBe(19)
+describe('ProfileIdSchema', () => {
+  const canonicalIds = [
+    'linkedin-background', 'linkedin-post', 'linkedin-article-cover',
+    'linkedin-profile', 'linkedin-single-image-ad', 'linkedin-career-background',
+    'twitter-post', 'twitter-header', 'twitter-ad', 'twitter-video', 'twitter-ad-landscape',
+    'instagram-post-3-4', 'instagram-post-4-5', 'instagram-post-square',
+    'instagram-story', 'instagram-reel', 'instagram-profile', 'instagram-story-video',
+    'square',
+  ]
+  const legacyAliases = ['instagram', 'twitter', 'linkedin']
+
+  it.each([...canonicalIds, ...legacyAliases])('accepts %s', (id) => {
+    expect(ProfileIdSchema.safeParse(id).success).toBe(true)
+  })
+  it('rejects unknown profile id', () => {
+    expect(ProfileIdSchema.safeParse('facebook-post').success).toBe(false)
+  })
+})
+
+describe('Result helpers', () => {
+  it('ok wraps a value', () => {
+    const result = ok(42)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.value).toBe(42)
+  })
+  it('err wraps an error with a code', () => {
+    const result = err({ code: 'RENDER_FAILED', message: 'timeout' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.code).toBe('RENDER_FAILED')
   })
 })
