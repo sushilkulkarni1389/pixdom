@@ -8,3 +8,5 @@ dist/
 apps/*/dist/
 packages/*/dist/
 *.tgz
+.claude/
+dist-tarball/
