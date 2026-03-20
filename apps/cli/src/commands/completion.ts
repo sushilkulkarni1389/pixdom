@@ -1,4 +1,7 @@
 import { createRequire } from 'node:module';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { Command } from 'commander';
 
 const _require = createRequire(import.meta.url);
@@ -111,7 +114,7 @@ function generateFishCompletionScript(): string {
     'complete -c pixdom -n "__fish_seen_subcommand_from completion" -l install -d "Print installation instructions"',
     '',
     '# pixdom-mcp: disable file completion (binary takes no arguments)',
-    'complete -c pixdom-mcp -f',
+    "complete -c pixdom-mcp -f -n 'true'",
     '',
     '# mcp subcommand flags',
     'complete -c pixdom -n "__fish_seen_subcommand_from mcp" -l install -d "Install MCP server"',
@@ -146,7 +149,7 @@ function generateCompletionScript(program: string): string {
     `    fi`,
     `  }`,
     `  compdef ${fn} ${program}`,
-    `  _pixdom_mcp_noop() { }`,
+    `  _pixdom_mcp_noop() { compadd -x 'pixdom-mcp takes no arguments'; return 0; }`,
     `  compdef _pixdom_mcp_noop pixdom-mcp`,
     `elif type complete &>/dev/null; then`,
     `  ${fn}() {`,
@@ -158,11 +161,100 @@ function generateCompletionScript(program: string): string {
     `    __ltrim_colon_completions "$cur"`,
     `  }`,
     `  complete -F ${fn} -o default ${program}`,
-    `  _pixdom_mcp_completion() { COMPREPLY=(); }`,
-    `  complete -F _pixdom_mcp_completion pixdom-mcp`,
+    `  _pixdom_mcp_noop() { COMPREPLY=(); return 0; }`,
+    `  complete -F _pixdom_mcp_noop -o nospace -o nosort pixdom-mcp`,
     `fi`,
     `### ${program} completion - end ###`,
   ].join('\n');
+}
+
+const BEGIN_MARKER = '### pixdom completion - begin ###';
+const END_MARKER = '### pixdom completion - end ###';
+
+/**
+ * Replaces a hardcoded completion block (begin/end markers) in rc file content
+ * with a single dynamic source line, or appends the line if no block exists.
+ * Returns the updated content and whether a change was made.
+ */
+function upsertRcLine(content: string, sourceLine: string): { updated: string; changed: boolean } {
+  const beginIdx = content.indexOf(BEGIN_MARKER);
+  const endIdx = content.indexOf(END_MARKER);
+
+  if (beginIdx !== -1 && endIdx !== -1) {
+    // Replace entire block (including surrounding newlines) with the single source line
+    const before = content.slice(0, beginIdx).replace(/\n+$/, '');
+    const after = content.slice(endIdx + END_MARKER.length).replace(/^\n+/, '');
+    return { updated: `${before}\n${sourceLine}\n${after}`, changed: true };
+  }
+
+  if (content.includes(sourceLine)) {
+    return { updated: content, changed: false };
+  }
+
+  const sep = content.endsWith('\n') ? '' : '\n';
+  return { updated: `${content}${sep}${sourceLine}\n`, changed: true };
+}
+
+function installCompletion(): void {
+  const shell = process.env.SHELL ?? '';
+  const isBash = shell.includes('bash');
+  const isZsh = shell.includes('zsh');
+  const isFish = shell.includes('fish');
+
+  if (isFish) {
+    const dir = join(homedir(), '.config', 'fish', 'completions');
+    const file = join(dir, 'pixdom.fish');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, generateFishCompletionScript(), 'utf8');
+    process.stdout.write(`✔ Fish completion written to ${file}\n`);
+    process.stdout.write('Restart your terminal or run: source ' + file + '\n');
+    return;
+  }
+
+  if (isBash || isZsh) {
+    const rcFile = join(homedir(), isBash ? '.bashrc' : '.zshrc');
+    const sourceLine = isZsh
+      ? 'source <(pixdom --completion)'
+      : '. <(pixdom --completion)';
+
+    let existing = '';
+    try {
+      existing = readFileSync(rcFile, 'utf8');
+    } catch {
+      // file may not exist yet
+    }
+
+    const { updated, changed } = upsertRcLine(existing, sourceLine);
+    if (changed) {
+      writeFileSync(rcFile, updated, 'utf8');
+      process.stdout.write(`✔ Completion added to ${rcFile}\n`);
+    } else {
+      process.stdout.write(`✔ Completion already present in ${rcFile}\n`);
+    }
+    process.stdout.write(`Run: source ${rcFile}\n`);
+    return;
+  }
+
+  // Unknown shell — fall back to manual instructions
+  process.stdout.write(
+    [
+      'pixdom shell completion setup',
+      '',
+      'Bash — add to ~/.bashrc:',
+      "  echo '. <(pixdom --completion)' >> ~/.bashrc",
+      '  source ~/.bashrc',
+      '',
+      'Zsh — add to ~/.zshrc:',
+      "  echo 'source <(pixdom --completion)' >> ~/.zshrc",
+      '  source ~/.zshrc',
+      '',
+      'Fish — write to completions directory:',
+      '  pixdom --completion-fish > ~/.config/fish/completions/pixdom.fish',
+      '',
+      "Note: type 'pixdom' in full to trigger completion. Partial name expansion (pix<TAB> → pixdom) is not supported.",
+      '',
+    ].join('\n'),
+  );
 }
 
 /**
@@ -231,28 +323,10 @@ export function registerCompletion(program: Command): void {
   program
     .command('completion')
     .description('Print shell completion script to stdout')
-    .option('--install', 'Print installation instructions for your shell')
+    .option('--install', 'Auto-install completion into your shell rc file')
     .action((opts: { install?: boolean }) => {
       if (opts.install) {
-        process.stdout.write(
-          [
-            'pixdom shell completion setup',
-            '',
-            'Bash — add to ~/.bashrc:',
-            "  echo '. <(pixdom --completion)' >> ~/.bashrc",
-            '  source ~/.bashrc',
-            '',
-            'Zsh — add to ~/.zshrc:',
-            "  echo 'source <(pixdom --completion)' >> ~/.zshrc",
-            '  source ~/.zshrc',
-            '',
-            'Fish — write to completions directory:',
-            '  pixdom --completion-fish > ~/.config/fish/completions/pixdom.fish',
-            '',
-            "Note: type 'pixdom' in full to trigger completion. Partial name expansion (pix<TAB> → pixdom) is not supported.",
-            '',
-          ].join('\n'),
-        );
+        installCompletion();
         process.exit(0);
       } else {
         process.stdout.write(generateCompletionScript('pixdom') + '\n');
