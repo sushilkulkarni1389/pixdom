@@ -74,6 +74,7 @@ function generateFishCompletionScript(): string {
     '# Subcommands',
     'complete -c pixdom -n "__fish_use_subcommand" -a convert -d "Render HTML, file, or URL to image/video"',
     'complete -c pixdom -n "__fish_use_subcommand" -a completion -d "Print shell completion script"',
+    'complete -c pixdom -n "__fish_use_subcommand" -a mcp -d "Manage MCP server integration"',
     '',
     '# Global flags',
     'complete -c pixdom -l no-color -d "Disable ANSI color in error output"',
@@ -108,6 +109,13 @@ function generateFishCompletionScript(): string {
     '',
     '# completion subcommand flags',
     'complete -c pixdom -n "__fish_seen_subcommand_from completion" -l install -d "Print installation instructions"',
+    '',
+    '# mcp subcommand flags',
+    'complete -c pixdom -n "__fish_seen_subcommand_from mcp" -l install -d "Install MCP server"',
+    'complete -c pixdom -n "__fish_seen_subcommand_from mcp" -l uninstall -d "Uninstall MCP server"',
+    'complete -c pixdom -n "__fish_seen_subcommand_from mcp" -l status -d "Show MCP server status"',
+    'complete -c pixdom -n "__fish_seen_subcommand_from mcp" -l set-key -r -d "Set API key for MCP server"',
+    'complete -c pixdom -n "__fish_seen_subcommand_from mcp" -l help -d "Show MCP help"',
   ];
   return lines.join('\n') + '\n';
 }
@@ -181,7 +189,14 @@ export function registerCompletion(program: Command): void {
       ['--profile', PROFILE_SLUGS],
       ['--format', FORMAT_VALUES],
     ]),
-    completion: ['--install'],
+    completion: { '--install': [] },
+    mcp: {
+      '--install': [],
+      '--uninstall': [],
+      '--status': [],
+      '--set-key': [],
+      '--help': [],
+    },
   });
 
   // Detect completion context before init() so we can exit cleanly if init() crashes.
