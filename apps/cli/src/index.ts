@@ -10,6 +10,7 @@ import { ProfileIdSchema } from '@pixdom/types';
 import type { RenderInput, OutputFormat, ProfileId } from '@pixdom/types';
 import type { RenderError } from '@pixdom/core';
 import { registerCompletion } from './commands/completion.js';
+import { registerMcp } from './commands/mcp.js';
 import { formatError } from './error-formatter.js';
 import { validateFileInput } from './validate-input.js';
 import { createProgressReporter } from './progress-reporter.js';
@@ -518,5 +519,6 @@ program
   });
 
 registerCompletion(program);
+registerMcp(program);
 
 program.parse();

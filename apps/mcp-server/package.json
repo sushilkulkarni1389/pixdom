@@ -2,8 +2,11 @@
   "name": "@pixdom/mcp-server",
   "version": "0.1.0",
   "main": "dist/index.js",
+  "bin": {
+    "pixdom-mcp": "./dist/index.js"
+  },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/index.js --external:@anthropic-ai/sdk --external:@modelcontextprotocol/sdk --external:zod --external:playwright --external:sharp --external:ffmpeg-static",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/index.js --banner:js='#!/usr/bin/env node' --external:@anthropic-ai/sdk --external:@modelcontextprotocol/sdk --external:zod --external:playwright --external:sharp --external:ffmpeg-static && chmod +x dist/index.js",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit"
   },
