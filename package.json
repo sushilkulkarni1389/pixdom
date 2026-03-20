@@ -6,6 +6,8 @@
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint:md": "markdownlint-cli2 'openspec/**/*.md' '.claude/**/*.md'",
     "lint:md:fix": "markdownlint-cli2 --fix 'openspec/**/*.md' '.claude/**/*.md'",
     "lint:md:specs": "markdownlint-cli2 'openspec/specs/**/*.md'",
@@ -15,7 +17,8 @@
   "devDependencies": {
     "@types/node": "25.5.0",
     "markdownlint-cli2": "0.21.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^4.1.0"
   },
   "dependencies": {
     "ora": "8.2.0"
