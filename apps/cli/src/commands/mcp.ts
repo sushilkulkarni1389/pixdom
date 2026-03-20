@@ -204,17 +204,27 @@ function resolveMcpBinary(): { path: string; resolved: boolean } {
   return { path: 'pixdom-mcp', resolved: false };
 }
 
+function isActiveClaudeProject(proj: Record<string, unknown>): boolean {
+  return proj.hasTrustDialogAccepted === true ||
+    (typeof proj.projectOnboardingSeenCount === 'number' && proj.projectOnboardingSeenCount > 0);
+}
+
 function getMcpServersContainer(
   config: Record<string, unknown>,
 ): { container: Record<string, unknown>; scope: 'project' | 'global'; scopeKey: string } {
   const cwd = process.cwd();
+  const homeDir = os.homedir();
   const projects = config.projects as Record<string, Record<string, unknown>> | undefined;
 
-  if (projects && typeof projects === 'object') {
-    // Pick the longest (most specific) matching project key
+  if (cwd !== homeDir && projects && typeof projects === 'object') {
+    // Pick the longest (most specific) matching project key that is an active Claude Code project
     let bestKey = '';
     for (const projectKey of Object.keys(projects)) {
-      if ((cwd === projectKey || cwd.startsWith(projectKey + path.sep)) && projectKey.length > bestKey.length) {
+      if (
+        (cwd === projectKey || cwd.startsWith(projectKey + path.sep)) &&
+        projectKey.length > bestKey.length &&
+        isActiveClaudeProject(projects[projectKey])
+      ) {
         bestKey = projectKey;
       }
     }
