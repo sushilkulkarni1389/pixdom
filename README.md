@@ -14,7 +14,7 @@ Pixdom is a CLI tool and MCP server that helps developers and AI practitioners c
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Last Commit](https://img.shields.io/github/last-commit/sushilkulkarni1389/pixdom)](https://github.com/sushilkulkarni1389/pixdom/commits/main)
 [![Stars](https://img.shields.io/github/stars/sushilkulkarni1389/pixdom?style=social)](https://github.com/sushilkulkarni1389/pixdom/stargazers)
-[![CI](https://img.shields.io/github/actions/workflow/status/sushilkulkarni1389/pixdom/ci.yml?label=CI)](https://github.com/sushilkulkarni1389/pixdom/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/sushilkulkarni1389/pixdom/ci.yml?label=CI&cacheSeconds=0)](https://github.com/sushilkulkarni1389/pixdom/actions)
 
 </div>
 
