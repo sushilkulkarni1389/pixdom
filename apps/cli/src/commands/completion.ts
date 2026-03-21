@@ -41,6 +41,10 @@ const PROFILE_SLUGS = [
   'instagram',
 ];
 
+const CANONICAL_PROFILE_SLUGS = PROFILE_SLUGS.filter(
+  s => !['linkedin', 'twitter', 'instagram'].includes(s)
+);
+
 const FORMAT_VALUES = ['png', 'jpeg', 'webp', 'gif', 'mp4', 'webm'];
 
 const CONVERT_FLAGS = [
@@ -306,7 +310,7 @@ function getCompletionsForContext(prev: string, fullLine: string): string[] {
   // Convert context — Layer 3: value position
   if (VALUE_TAKING_FLAGS.has(prev)) {
     switch (prev) {
-      case '--profile':  return PROFILE_SLUGS;
+      case '--profile':  return CANONICAL_PROFILE_SLUGS;
       case '--format':   return FORMAT_VALUES;
       default:           return []; // free-text or file path: no enumerable values
     }
