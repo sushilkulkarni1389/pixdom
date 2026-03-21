@@ -47,14 +47,49 @@ After sourcing the completion script, pressing TAB after `pixdom convert --forma
 - **WHEN** the completion script is sourced and the user types `pixdom convert --format ` then presses TAB
 - **THEN** the shell presents exactly `png jpeg webp gif mp4 webm` as candidates
 
+### Requirement: Custom compgen intercept runs before omelette init
+`registerCompletion()` SHALL check for `--compgen` in `process.argv` before instantiating or calling `completion.init()`. When `--compgen` is found, it SHALL extract the `prev` word at `process.argv[compgenIdx + 2]`, resolve completions via `getCompletionsForPrev(prev)`, write the newline-joined result to stdout, and call `process.exit(0)`. The `completion.init()` call SHALL NOT be reached for `--compgen` invocations.
+
+#### Scenario: --profile completions returned via compgen intercept
+- **WHEN** the shell invokes `pixdom --compbash --compgen 3 --profile "pixdom convert --profile "`
+- **THEN** stdout contains all 22 profile slugs (one per line) and the process exits with code 0
+
+#### Scenario: --format completions returned via compgen intercept
+- **WHEN** the shell invokes `pixdom --compbash --compgen 3 --format "pixdom convert --format "`
+- **THEN** stdout contains exactly `png`, `jpeg`, `webp`, `gif`, `mp4`, `webm` (one per line) and the process exits with code 0
+
+#### Scenario: Unknown prev falls through to empty output
+- **WHEN** the shell invokes `pixdom --compbash --compgen 3 --url "pixdom convert --url "`
+- **THEN** stdout is empty (or a single newline) and the process exits with code 0
+
+### Requirement: getCompletionsForPrev covers all enumerable flag values
+`getCompletionsForPrev(prev: string)` SHALL return:
+- `PROFILE_SLUGS` (22 entries) when `prev` is `--profile`
+- `FORMAT_VALUES` (`png jpeg webp gif mp4 webm`) when `prev` is `--format`
+- `[]` for all other flags (`--url`, `--html`, `--selector`, `--output`, `--file`, `--image`, `--width`, `--height`, `--quality`, `--fps`, `--duration`)
+- Subcommand lists (`['convert', 'completion', 'mcp']`) when `prev` is `pixdom`
+- `[]` as the default case
+
+#### Scenario: PROFILE_SLUGS returned for --profile
+- **WHEN** `getCompletionsForPrev('--profile')` is called
+- **THEN** the return value contains exactly 22 entries including `linkedin-post` and `instagram`
+
+#### Scenario: FORMAT_VALUES returned for --format
+- **WHEN** `getCompletionsForPrev('--format')` is called
+- **THEN** the return value is `['png', 'jpeg', 'webp', 'gif', 'mp4', 'webm']`
+
+#### Scenario: Empty array for free-text flags
+- **WHEN** `getCompletionsForPrev('--url')` is called
+- **THEN** the return value is `[]`
+
 ### Requirement: File-path completion for file-based flags
 After sourcing the completion script, pressing TAB after `--file ` or `--image ` SHALL delegate to the shell's native file-path completion mechanism.
 
-The omelette `init()` call SHALL be wrapped in a try/catch so that any internal crash during TAB completion (e.g. omelette's tree traversal via `reduce()` hitting `undefined` when a flag value rather than a flag name appears as a tree key) is silently swallowed. When an error is caught, completion exits without output and the shell falls through to its default filename completion behaviour.
+The `--compgen` early intercept (see "Custom compgen intercept runs before omelette init") runs before `completion.init()`. For `--file` and `--image`, `getCompletionsForPrev()` returns `[]`, causing the intercept to write an empty line and exit. The shell's `-o default` (bash) or `_path_files` (zsh) fallback then provides native filename completion.
 
-This guard is required because omelette's tree-traversal crashes when other flags and their values precede `--file` or `--image` in the command line (e.g. `pixdom convert --html "x" --file <TAB>`). The `--file` and `--image` completion nodes already return `[]` to signal native filename completion; the try/catch ensures that path is reached even in multi-flag contexts.
+The omelette `init()` call SHALL be wrapped in a try/catch so that any internal crash during TAB completion that reaches this path (Layer 1, Layer 2 traversal) is silently swallowed. When an error is caught, completion exits without output and the shell falls through to its default filename completion behaviour.
 
-After the try/catch around `completion.init()`, `registerCompletion()` SHALL check whether any omelette completion flags (`--compbash`, `--compzsh`, `--compgen`, `--compfish`) are present in `process.argv` (recorded before `init()` runs). If so and the process has not already exited (meaning `init()` crashed before calling `process.exit()`), it SHALL write `'\n'` to stdout and call `process.exit(0)`. This guard prevents Commander from receiving omelette's flags as unknown options.
+After the try/catch around `completion.init()`, `registerCompletion()` SHALL check whether any omelette completion flags (`--compbash`, `--compzsh`, `--compgen`, `--compfish`) are present in `process.argv` (recorded before `init()` runs). If so and the process has not already exited, it SHALL write `'\n'` to stdout and call `process.exit(0)`.
 
 #### Scenario: --file triggers path completion
 - **WHEN** the completion script is sourced and the user types `pixdom convert --file ./` then presses TAB

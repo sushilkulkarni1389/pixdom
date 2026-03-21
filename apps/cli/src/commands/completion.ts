@@ -51,13 +51,23 @@ const CONVERT_FLAGS = [
   '--profile',
   '--output',
   '--format',
+  '--quality',
   '--width',
   '--height',
-  '--quality',
+  '--auto-size',
   '--fps',
   '--duration',
-  '--auto-size',
+  '--selector',
+  '--auto',
+  '--allow-local',
 ];
+
+// Flags that consume the next token as their value. All others are boolean (flag-position).
+const VALUE_TAKING_FLAGS = new Set([
+  '--profile', '--format', '--url', '--html', '--file',
+  '--image', '--output', '--width', '--height', '--quality',
+  '--fps', '--duration', '--selector',
+]);
 
 /**
  * Generates a fish completion file for pixdom.
@@ -260,6 +270,56 @@ function installCompletion(): void {
 }
 
 /**
+ * Detects which subcommand is present in the full COMP_LINE.
+ */
+function detectSubcommand(line: string): 'convert' | 'completion' | 'mcp' | null {
+  for (const token of line.trim().split(/\s+/)) {
+    if (token === 'convert' || token === 'completion' || token === 'mcp') return token;
+  }
+  return null;
+}
+
+/**
+ * Returns completion candidates based on the previous word and the full command line.
+ *
+ * Three-layer logic:
+ *   Layer 1 — subcommands (prev === 'pixdom')
+ *   Layer 2 — flag names (prev is subcommand or boolean flag → flag position)
+ *   Layer 3 — flag values (prev is a value-taking flag → return its values)
+ *
+ * For the convert subcommand, already-used flags are filtered from suggestions
+ * by parsing all '--*' tokens in fullLine.
+ */
+function getCompletionsForContext(prev: string, fullLine: string): string[] {
+  // Layer 1: top-level subcommand selection
+  if (prev === 'pixdom') return ['convert', 'completion', 'mcp'];
+
+  const subcommand = detectSubcommand(fullLine);
+
+  // Non-convert contexts: simple prev-only dispatch
+  if (subcommand !== 'convert') {
+    if (prev === 'completion') return ['--install', '--help'];
+    if (prev === 'mcp') return ['--install', '--uninstall', '--status', '--set-key', '--help'];
+    return [];
+  }
+
+  // Convert context — Layer 3: value position
+  if (VALUE_TAKING_FLAGS.has(prev)) {
+    switch (prev) {
+      case '--profile':  return PROFILE_SLUGS;
+      case '--format':   return FORMAT_VALUES;
+      default:           return []; // free-text or file path: no enumerable values
+    }
+  }
+
+  // Convert context — Layer 2: flag position
+  // prev is a boolean flag, a consumed value, or 'convert' itself.
+  // Return all convert flags minus any already present in the line.
+  const usedFlags = new Set(fullLine.trim().split(/\s+/).filter(t => t.startsWith('--')));
+  return CONVERT_FLAGS.filter(f => !usedFlags.has(f));
+}
+
+/**
  * Registers omelette-based shell completion and the `pixdom completion` subcommand.
  *
  * Must be called BEFORE program.parse() so that omelette can intercept completion
@@ -282,6 +342,16 @@ export function registerCompletion(program: Command): void {
 
   // Instantiating omelette calls checkInstall() internally: if --completion is in argv,
   // it outputs the bash/zsh init script and exits immediately.
+  const args = process.argv;
+  const compgenIdx = args.indexOf('--compgen');
+  if (compgenIdx !== -1) {
+    const prev = args[compgenIdx + 2] ?? '';
+    const fullLine = args[compgenIdx + 3] ?? '';
+    const completions = getCompletionsForContext(prev, fullLine);
+    process.stdout.write(completions.join('\n') + '\n');
+    process.exit(0);
+  }
+
   const completion = omelette('pixdom <command>');
 
   completion.tree({
