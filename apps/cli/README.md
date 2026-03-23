@@ -53,7 +53,7 @@ pixdom convert --image ./photo.jpg --profile instagram-story --output ./story.jp
 - 🎯 **Element-level capture** — `--selector "#card"` captures one DOM element pixel-perfectly, ignoring the rest of the page.
 - 🛡 **Security-hardened** — SSRF protection, path traversal prevention, Chromium sandboxing on by default, MCP output sandboxing, OS keychain for API key storage. See [SECURITY.md](.github/SECURITY.md).
 - 📦 **Self-contained install** — one command installs both the `pixdom` CLI and the `pixdom-mcp` server binary. Postinstall handles Chromium automatically.
-- 🐚 **Shell autocomplete** — full three-layer completion in bash and fish. `pixdom convert --profile <TAB>` shows all 19 canonical slugs. After selecting a value, `<TAB>` shows remaining unused flags.
+- 🐚 **Shell autocomplete** — full three-layer completion in bash, zsh, and fish. `pixdom convert --profile <TAB>` shows all 19 canonical slugs. After selecting a value, `<TAB>` shows remaining unused flags.
 
 ---
 
@@ -113,14 +113,36 @@ pixdom convert --url https://example.com --format png --output ./out.png
 pixdom convert --file animation.html --format gif --auto --output ./out.gif
 ```
 
-**Shell completion (bash/fish):**
+### Shell completion
 
 ```bash
 pixdom completion --install
+```
+
+This auto-detects your shell and writes the completion script to your rc file. No manual editing needed.
+
+**bash:**
+```bash
 source ~/.bashrc
 ```
 
-This auto-writes to your shell rc file. No manual editing needed.
+**zsh:**
+
+First ensure `compinit` is loaded in `~/.zshrc`. Add this line **before** the pixdom completion line if not already present:
+
+```bash
+autoload -Uz compinit && compinit
+```
+
+Then:
+```bash
+source ~/.zshrc
+```
+
+> **Oh My Zsh users:** `compinit` is already loaded by Oh My Zsh — no extra step needed. Just run `pixdom completion --install && source ~/.zshrc`.
+
+**fish:**
+Completion is written directly to `~/.config/fish/completions/pixdom.fish` — active immediately in new fish sessions.
 
 ---
 
@@ -227,9 +249,12 @@ Output:
 pixdom MCP server status:
   Config entry:    ✔ found in ~/.claude.json (global scope)
   Binary:          ✔ /usr/local/bin/pixdom-mcp
-  API key:         ✔ stored in OS keychain
-  Output dir:      ~/pixdom-output/
-  Allowed inputs:  ~/pixdom-input/, ~/Downloads/, ~/Desktop/
+  API key storage: ✔ env var (ANTHROPIC_API_KEY)
+  Output directory: ~/pixdom-output/
+  Allowed input dirs:
+    • ~/pixdom-input/
+    • ~/Downloads/
+    • ~/Desktop/
   Claude Code:     restart required to apply any recent changes
 ```
 
@@ -261,7 +286,7 @@ Options:
 
 Commands:
   convert [options]     Render HTML, file, URL, or image to output asset
-  completion [options]  Install shell completion (bash/fish)
+  completion [options]  Install shell completion (bash/zsh/fish)
   mcp [options]         Setup and manage the pixdom MCP server
 ```
 
@@ -433,7 +458,7 @@ flowchart TD
 |---|---|---|
 | Linux | ✅ Full | Set up user-local npm prefix first — see [Quick start](#quick-start) |
 | macOS | ✅ Full | Run `npm config get prefix` and add to PATH if `pixdom: command not found` |
-| Windows WSL | ✅ Full | Copy tarball into WSL first: `cp /mnt/c/Users/.../pixdom-*.tgz ~/`. Access WSL home from Windows Explorer at `\\wsl$\Ubuntu\home\username` |
+| Windows WSL | ✅ Full | Access WSL home from Windows Explorer at `\\wsl$\Ubuntu\home\username` |
 | Windows native | ⚠️ Partial | Conversion works, shell completion not supported (CMD/PowerShell) |
 
 ---
@@ -458,11 +483,12 @@ Pixdom's specific value is the combination: Playwright-accurate rendering + CSS 
 - `backdrop-filter: blur()` may not render correctly in Playwright headless mode
 - Sites behind Cloudflare or bot-protection may fail with `Page failed to load` — this is a Cloudflare restriction, not a Pixdom bug. Workaround: `curl -s https://site.com > page.html && pixdom convert --file page.html`
 - `pix<TAB>` binary name expansion not supported — type `pixdom` in full to trigger completion
-- Shell completion works fully on bash and fish. zsh completion is functional but requires `autoload -Uz compinit && compinit` before the `source <(pixdom --completion)` line in `~/.zshrc`
+- Shell completion works fully on bash and fish. zsh requires `autoload -Uz compinit && compinit` before the pixdom completion line in `~/.zshrc` — see [Shell completion](#shell-completion) above
 - `pixdom-mcp` hangs waiting for stdin when run directly in a terminal — this is correct MCP behaviour; Claude Code launches it automatically
 - MP4 and WebM output are implemented but not yet end-to-end verified across all platforms
 - `PIXDOM_NO_SANDBOX=1` env var disables Chromium sandbox — use in Docker/CI only
 - HTML syntax errors are silently fixed by Chromium and rendered as-is — Pixdom does not validate HTML content
+- `--format` is authoritative — the output file extension is ignored. `--format png --output out.mp4` produces a PNG file regardless of the `.mp4` extension
 
 ---
 
@@ -470,8 +496,8 @@ Pixdom's specific value is the combination: Playwright-accurate rendering + CSS 
 
 **v2:**
 
+- [ ] Full zsh completion parity with bash (currently requires manual `compinit` setup)
 - [ ] Multi-tool MCP support — `pixdom mcp --install --tool gemini|codex|cursor|all`
-- [ ] Full zsh completion parity with bash
 - [ ] HTML content validation — warn when `--file` content doesn't look like HTML
 - [ ] Web UI — for teams who don't want a CLI
 - [ ] REST API — for integration into existing pipelines
