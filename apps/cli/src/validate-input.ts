@@ -5,6 +5,22 @@ import type { RenderErrorCode } from '@pixdom/core';
 const HTML_EXTS = new Set(['.html', '.htm']);
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
 
+const VALID_FORMATS = ['png', 'jpeg', 'webp', 'gif', 'mp4', 'webm'] as const;
+
+/**
+ * Validates that the requested output format is supported.
+ * Returns a ValidationError if unsupported, or null if valid.
+ */
+export function validateFormat(format: string): ValidationError | null {
+  if (!(VALID_FORMATS as readonly string[]).includes(format)) {
+    return {
+      code: 'INVALID_FILE_TYPE',
+      message: `Unsupported format "${format}". How to fix: Use one of: png, jpeg, webp, gif, mp4, webm`,
+    };
+  }
+  return null;
+}
+
 interface ValidationError {
   code: RenderErrorCode;
   message: string;

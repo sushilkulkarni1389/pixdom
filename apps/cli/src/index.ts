@@ -12,7 +12,7 @@ import type { RenderError } from '@pixdom/core';
 import { registerCompletion } from './commands/completion.js';
 import { registerMcp } from './commands/mcp.js';
 import { formatError } from './error-formatter.js';
-import { validateFileInput } from './validate-input.js';
+import { validateFileInput, validateFormat } from './validate-input.js';
 import { createProgressReporter } from './progress-reporter.js';
 
 // ---------------------------------------------------------------------------
@@ -187,6 +187,13 @@ async function convertAction(opts: ConvertOpts, fmt: { argv: string[]; color: bo
   }
   if (inputFlags.length > 1) {
     process.stderr.write('Error: Provide exactly one of --html, --file, --url, or --image (got multiple)\n');
+    process.exit(1);
+  }
+
+  // Format validation — fast fail before Playwright launches
+  const formatErr = validateFormat(opts.format);
+  if (formatErr) {
+    process.stderr.write(formatError(formatErr, fmt) + '\n');
     process.exit(1);
   }
 
