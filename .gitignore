@@ -1,12 +1,54 @@
-# OpenSpec session diffs (optional — commit if you want an audit trail)
-.claude/SESSION-DIFF-*.md
-
+# Dependencies
 node_modules/
 
 # Build output — never commit compiled files
 dist/
 apps/*/dist/
 packages/*/dist/
+
+# Distribution tarballs
 *.tgz
-.claude/
 dist-tarball/
+
+# Pixdom runtime output artifacts
+pixdom-output.*
+output/
+apps/*/output/
+apps/mcp-server/output/
+
+# Test artifacts
+out.png
+out.jpg
+out.gif
+out.webp
+out.mp4
+out.webm
+*.test-output.*
+
+# Environment and secrets
+.env
+.env.*
+.env.local
+.env.production
+!.env.example
+
+# OS artifacts
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# IDE folders
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Claude Code session diffs
+.claude/SESSION-DIFF-*.md
+.claude/
