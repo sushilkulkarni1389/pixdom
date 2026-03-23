@@ -28,8 +28,9 @@ export async function captureFrames(
   const frameIntervalMs = cycleMs / frameCount;
 
   // Compute bounding box once before the frame loop (spec: bounding box computed once)
+  let boundingBox: { x: number; y: number; width: number; height: number } | null = null;
   if (element) {
-    await element.boundingBox();
+    boundingBox = await element.boundingBox();
   }
 
   await page.clock.install({ time: 0 });
@@ -40,8 +41,8 @@ export async function captureFrames(
   for (let i = 0; i < frameCount; i++) {
     await page.clock.runFor(frameIntervalMs);
     const framePath = path.join(outDir, `frame-${String(i).padStart(6, '0')}.png`);
-    if (element) {
-      await element.screenshot({ type: 'png', path: framePath });
+    if (element && boundingBox) {
+      await page.screenshot({ type: 'png', path: framePath, clip: boundingBox });
     } else {
       await page.screenshot({ type: 'png', fullPage: false, path: framePath });
     }
