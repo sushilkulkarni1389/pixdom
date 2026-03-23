@@ -12,7 +12,7 @@ import type { RenderError } from '@pixdom/core';
 import { registerCompletion } from './commands/completion.js';
 import { registerMcp } from './commands/mcp.js';
 import { formatError } from './error-formatter.js';
-import { validateFileInput, validateFormat } from './validate-input.js';
+import { validateFileInput, validateFormat, validateRawIpv4Host } from './validate-input.js';
 import { createProgressReporter } from './progress-reporter.js';
 
 // ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ const BLOCKED_CIDRS: Cidr4[] = [
 
 function isBlockedIpv4(ip: string): boolean {
   const n = ipv4ToInt(ip);
-  return BLOCKED_CIDRS.some((c) => (n & c.mask) === c.base);
+  return BLOCKED_CIDRS.some((c) => ((n & c.mask) >>> 0) === c.base);
 }
 
 function isBlockedIpv6(ip: string): boolean {
@@ -59,38 +59,45 @@ async function validateUrl(
   try {
     parsed = new URL(rawUrl);
   } catch {
-    process.stderr.write(`Error: Invalid URL: ${rawUrl}\n`);
-    process.exit(1);
-    return;
+    throw { code: 'INVALID_URL_PROTOCOL', message: `Invalid URL: ${rawUrl}` } as RenderError;
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    const renderErr: RenderError = {
+    throw {
       code: 'INVALID_URL_PROTOCOL',
       message: `URL protocol "${parsed.protocol}" is not allowed. Only http:// and https:// are supported.`,
-    };
-    process.stderr.write(formatError(renderErr, fmt) + '\n');
-    process.exit(1);
+    } as RenderError;
   }
 
   if (!allowLocal) {
     const hostname = parsed.hostname.replace(/^\[/, '').replace(/\]$/, '');
-    try {
-      const addrs = await dns.lookup(hostname, { all: true });
-      for (const addr of addrs) {
-        const blocked =
-          addr.family === 4 ? isBlockedIpv4(addr.address) : isBlockedIpv6(addr.address);
-        if (blocked) {
-          const renderErr: RenderError = {
-            code: 'INVALID_URL_HOST',
-            message: `URL host "${hostname}" resolves to a blocked address (${addr.address}). Loopback, private, and cloud-metadata addresses are not permitted.`,
-          };
-          process.stderr.write(formatError(renderErr, fmt) + '\n');
-          process.exit(1);
+
+    // Reject raw IPv4 addresses before DNS (primary check lives in validate-input.ts)
+    const rawIpErr = validateRawIpv4Host(hostname);
+    if (rawIpErr) {
+      throw rawIpErr as RenderError;
+    }
+
+    // Only run DNS lookup for non-raw-IP hostnames
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+      try {
+        const addrs = await dns.lookup(hostname, { all: true });
+        for (const addr of addrs) {
+          const blocked =
+            addr.family === 4 ? isBlockedIpv4(addr.address) : isBlockedIpv6(addr.address);
+          if (blocked) {
+            throw {
+              code: 'INVALID_URL_HOST',
+              message: `URL host "${hostname}" resolves to a blocked address (${addr.address}). Loopback, private, and cloud-metadata addresses are not permitted.`,
+            } as RenderError;
+          }
+        }
+      } catch (e) {
+        // Re-throw RenderErrors; swallow DNS resolution failures (not a private host)
+        if (e && typeof e === 'object' && 'code' in e && typeof (e as RenderError).message === 'string') {
+          throw e;
         }
       }
-    } catch {
-      // DNS resolution failed — not a private host, allow through
     }
   } else {
     process.stderr.write('Warning: --allow-local is active — localhost and private network URLs are permitted.\n');
@@ -295,7 +302,13 @@ async function convertAction(opts: ConvertOpts, fmt: { argv: string[]; color: bo
 
   // URL protocol + host validation (5.1, 5.2)
   if (input.type === 'url') {
-    await validateUrl(input.url, opts.allowLocal === true, fmt);
+    try {
+      await validateUrl(input.url, opts.allowLocal === true, fmt);
+    } catch (err) {
+      process.stderr.write(formatError(err as RenderError, fmt) + '\n');
+      process.exit(1);
+      return;
+    }
   }
 
   // File type + existence validation
@@ -330,8 +343,14 @@ async function convertAction(opts: ConvertOpts, fmt: { argv: string[]; color: bo
     }
     const profile = resolveProfile(profileParse.data as ProfileId);
     format = opts.format !== 'png' ? (opts.format as OutputFormat) : profile.format;
-    finalWidth = opts.width !== '1280' ? width : profile.width;
-    finalHeight = opts.height !== '720' ? height : profile.height;
+    if (process.argv.includes('--width')) {
+      process.stderr.write(`Warning: --width ignored when --profile is active; using profile width (${profile.width}px)\n`);
+    }
+    if (process.argv.includes('--height')) {
+      process.stderr.write(`Warning: --height ignored when --profile is active; using profile height (${profile.height}px)\n`);
+    }
+    finalWidth = profile.width;
+    finalHeight = profile.height;
     quality = opts.quality !== '90' ? parseInt(opts.quality, 10) : profile.quality;
   }
 
@@ -457,6 +476,7 @@ async function convertAction(opts: ConvertOpts, fmt: { argv: string[]; color: bo
       selector,
       allowLocal: opts.allowLocal === true,
       auto: autoEnabled,
+      profileViewport: opts.profile !== undefined,
     },
     { onProgress },
   );

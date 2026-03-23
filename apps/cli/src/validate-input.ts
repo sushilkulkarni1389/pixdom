@@ -5,6 +5,50 @@ import type { RenderErrorCode } from '@pixdom/core';
 const HTML_EXTS = new Set(['.html', '.htm']);
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
 
+// ---------------------------------------------------------------------------
+// Raw IPv4 CIDR block check — runs before DNS, before Playwright
+// ---------------------------------------------------------------------------
+
+interface Cidr4 { base: number; mask: number; }
+
+function parseCidr4(cidr: string): Cidr4 {
+  const [ip, bits] = cidr.split('/');
+  const mask = bits ? ~((1 << (32 - Number(bits))) - 1) >>> 0 : 0xffffffff;
+  const parts = ip!.split('.').map(Number);
+  const base = (((parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!) >>> 0);
+  return { base: base >>> 0, mask: mask >>> 0 };
+}
+
+function ipv4ToInt(ip: string): number {
+  const parts = ip.split('.').map(Number);
+  return (((parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!) >>> 0);
+}
+
+const BLOCKED_CIDRS: Cidr4[] = [
+  '127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16',
+].map(parseCidr4);
+
+const RAW_IPV4_RE = /^\d+\.\d+\.\d+\.\d+$/;
+
+/**
+ * If hostname is a raw IPv4 literal that falls within a blocked CIDR range,
+ * returns a ValidationError. Returns null otherwise (including for hostnames
+ * that are not raw IPv4 addresses — those are handled by DNS lookup later).
+ * Call this before any dns.lookup and before Playwright launches.
+ */
+export function validateRawIpv4Host(hostname: string): ValidationError | null {
+  if (!RAW_IPV4_RE.test(hostname)) return null;
+  const n = ipv4ToInt(hostname);
+  const blocked = BLOCKED_CIDRS.some((c) => ((n & c.mask) >>> 0) === c.base);
+  if (blocked) {
+    return {
+      code: 'INVALID_URL_HOST',
+      message: `URL host "${hostname}" is a blocked address. Loopback, private, and cloud-metadata addresses are not permitted.`,
+    };
+  }
+  return null;
+}
+
 const VALID_FORMATS = ['png', 'jpeg', 'webp', 'gif', 'mp4', 'webm'] as const;
 
 /**
