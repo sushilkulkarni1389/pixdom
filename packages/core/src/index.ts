@@ -74,13 +74,11 @@ export async function render(
   }
 
   try {
-    const context = await browser.newContext({ serviceWorkers: 'block' });
-    const page = await context.newPage();
-
-    await page.setViewportSize({
-      width: options.viewport.width,
-      height: options.viewport.height,
+    const context = await browser.newContext({
+      serviceWorkers: 'block',
+      viewport: { width: options.viewport.width, height: options.viewport.height },
     });
+    const page = await context.newPage();
 
     page.setDefaultNavigationTimeout(30000);
 
@@ -188,18 +186,27 @@ export async function render(
       if (ANIMATED_FORMATS.has(options.format) && autoDuration === null && !options.duration) {
         autoSwitchedToStatic = true;
       }
+
+      // profile + auto: capture full profile viewport — do not use element capture
+      if (options.profileViewport) {
+        autoEffectiveSelector = undefined;
+        // Do not resolve elementHandle for profile+auto combination
+        // page.screenshot() at full profile viewport will be used instead
+      }
     }
 
     // Auto-size: resize viewport to match content dimensions after page load
     // Skipped when --selector is active (element bounding box drives output dimensions)
     if (options.autoSize && !options.selector) {
       emit({ type: 'step-start', step: 'auto-size' });
+      // Shrink to 1×1 so content wider/taller than the default viewport overflows
+      // and scrollWidth/scrollHeight reflects actual content bounds, not viewport size.
+      await page.setViewportSize({ width: 1, height: 1 });
       const { scrollWidth, scrollHeight } = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
         scrollHeight: document.documentElement.scrollHeight,
       }));
-      const autoWidth = options.viewport.width === 1280 ? scrollWidth : options.viewport.width;
-      await page.setViewportSize({ width: autoWidth, height: scrollHeight });
+      await page.setViewportSize({ width: scrollWidth, height: scrollHeight });
       emit({ type: 'step-done', step: 'auto-size' });
     }
 

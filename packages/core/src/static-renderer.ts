@@ -11,11 +11,21 @@ export async function renderStatic(
 ): Promise<Buffer> {
   const emit = onProgress ?? (() => {});
   emit({ type: 'step-start', step: 'capture' });
-  const screenshot = element
-    ? await element.screenshot({ type: 'png' })
-    : await page.screenshot({ type: 'png', fullPage: false });
+  let screenshot: Buffer;
+  if (element) {
+    const box = await element.boundingBox();
+    if (!box) throw new Error('Could not get element bounding box');
+    screenshot = await page.screenshot({ type: 'png', clip: box });
+  } else {
+    screenshot = await page.screenshot({ type: 'png', fullPage: false });
+  }
   emit({ type: 'step-done', step: 'capture' });
   const image = sharp(screenshot);
+
+  if (options.profileViewport) {
+    emit({ type: 'step-start', step: 'resize' });
+    emit({ type: 'step-done', step: 'resize' });
+  }
 
   emit({ type: 'step-start', step: 'write-output' });
   let buf: Buffer;

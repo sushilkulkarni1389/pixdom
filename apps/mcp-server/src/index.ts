@@ -159,8 +159,8 @@ server.registerTool(
         .optional()
         .default('png')
         .describe('Output format'),
-      width: z.coerce.number().int().min(1).max(7680).optional().default(1280).describe('Viewport width (1–7680). Must be a number, not a string.'),
-      height: z.coerce.number().int().min(1).max(4320).optional().default(720).describe('Viewport height (1–4320). Must be a number, not a string.'),
+      width: z.coerce.number().int().min(1).max(7680).optional().describe('Viewport width (1–7680). Must be a number, not a string.'),
+      height: z.coerce.number().int().min(1).max(4320).optional().describe('Viewport height (1–4320). Must be a number, not a string.'),
       quality: z.coerce.number().min(0).max(100).optional().default(90).describe('Output quality (0–100). Must be a number, not a string.'),
       output: z.string().optional().describe(`Custom output file path (must be inside ${OUTPUT_DIR})`),
       selector: z.string().optional().describe('CSS selector to capture a specific DOM element (e.g. "#card", ".hero")'),
@@ -313,8 +313,8 @@ server.registerTool(
         .optional()
         .default('png')
         .describe('Output format'),
-      width: z.coerce.number().int().min(1).max(7680).optional().default(1280).describe('Viewport width (1–7680). Must be a number, not a string.'),
-      height: z.coerce.number().int().min(1).max(4320).optional().default(720).describe('Viewport height (1–4320). Must be a number, not a string.'),
+      width: z.coerce.number().int().min(1).max(7680).optional().describe('Viewport width (1–7680). Must be a number, not a string.'),
+      height: z.coerce.number().int().min(1).max(4320).optional().describe('Viewport height (1–4320). Must be a number, not a string.'),
       quality: z.coerce.number().min(0).max(100).optional().default(90).describe('Output quality (0–100). Must be a number, not a string.'),
       model: z
         .string()
@@ -432,43 +432,31 @@ async function main() {
   try {
     systemPrompt = await readFile('.claude/context/claude-integration.md', 'utf-8');
   } catch {
-    systemPrompt = `You are an expert HTML/CSS developer specialising in creating visually stunning, \
-self-contained social media assets and marketing cards.
+    systemPrompt = `You are an expert HTML/CSS developer specialising in creating visually stunning, self-contained social media assets.
 
-## Output Rules
+Output Rules:
 - Return ONLY the HTML. Start with <!DOCTYPE html> on the very first line.
-- No explanation, no markdown fences, no preamble, no commentary after the HTML.
-- All styles must be inline or in a <style> block — no external CSS files.
-- No external JavaScript files. No frameworks (React, Vue, etc).
+- No explanation, no markdown fences, no preamble, no commentary.
+- All styles must be inline or in a <style> block.
+- No external CSS files. No frameworks.
 - Google Fonts via CDN link tags are allowed.
-- No images from external URLs unless explicitly requested.
 
-## Design Standards
-- Use CSS animations (not JavaScript) for all motion effects.
-- animation-duration values must be explicit (e.g. 3s, 2.5s) — never 0s or infinite without a duration.
-- Use CSS custom properties (--primary-color etc) for theming.
-- All text must be legible — sufficient contrast, readable font sizes.
-- Design must look complete and polished — no placeholder content, no "Lorem ipsum".
+Design Standards:
+- Use CSS animations for all motion effects.
+- animation-duration values must be explicit (e.g. 3s, 2.5s).
+- All text must be legible with sufficient contrast.
+- Design must look complete and polished.
 
-## Platform Aesthetics
-When a platform is mentioned in the prompt, apply these defaults:
-- LinkedIn: professional, clean, navy/white palette, serif or semi-bold sans-serif, subtle animations
-- Twitter/X: bold, high contrast, punchy headline, fast animations (under 2s)
-- Instagram: vibrant colours, modern typography, smooth fluid animations
-- Generic/no platform: modern dark gradient background, clean white text, smooth fade-ins
+Platform Aesthetics:
+- LinkedIn: professional, clean, navy/white palette, subtle animations
+- Twitter/X: bold, high contrast, punchy headline, fast animations
+- Instagram: vibrant colours, smooth fluid animations
+- Generic: modern dark gradient background, clean white text
 
-## Dimensions
-- Design for the full viewport — body margin: 0, height: 100vh, overflow: hidden.
+Dimensions:
+- Design for the full viewport: body margin 0, height 100vh, overflow hidden.
 - Content must be centred both horizontally and vertically.
-- Do not hardcode pixel widths — use percentages or viewport units so the output \
-scales correctly when Pixdom sets the viewport to the profile dimensions.
-
-## Animation Guidelines
-- Prefer CSS keyframe animations over transitions for repeating effects.
-- Use animation-iteration-count: infinite for looping assets.
-- Stagger entrance animations for multiple elements (animation-delay).
-- Easing: ease-in-out for smooth motion, linear for continuous rotation/scroll.
-- Keep total animation cycle under 10 seconds for GIF output.`;
+- Use percentages or viewport units, not hardcoded pixel widths.`;
   }
 
   process.on('SIGINT', () => {
