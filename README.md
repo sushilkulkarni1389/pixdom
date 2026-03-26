@@ -89,7 +89,8 @@ Skip this step on macOS — Homebrew-installed Node already uses a user-local pr
 ```bash
 npm install -g pixdom
 
-# Chromium is installed automatically by postinstall.
+# postinstall runs `npx playwright install chromium` automatically
+# to download the headless browser used for rendering.
 # If it doesn't run automatically:
 npx playwright install chromium
 
